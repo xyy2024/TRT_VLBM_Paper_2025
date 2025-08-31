@@ -1,8 +1,24 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+#    Test code for Numerical Experiment Section 06 (Kolmogrov Flow) Fig 09
+#    Copyright (C) 2025 Xu Yuyang (https://github.com/xyy2024)
+
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# 
+
 from d2n5_kolmogrov import d2n5_kolmogrov as model
-import numpy as np
 from _plottools import gridfig, Save, show, prt_flow_2d, prt_mask_2d
 
 save = Save(prefix = "Kolmogrov")

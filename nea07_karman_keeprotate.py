@@ -20,5 +20,5 @@ class model(d2n5_karman):
     
 test = model(h = 1/32, nu = 0.002)
 test.save.prefix = f"karman"
-test.save.dir = "graphic\\Karman_Appendix\\07_keeprotate"
+test.save.dir = "graphic\\Karman\\07_keeprotate"
 test.animation(time = 100, time_step = None, fps = 10, file_name = f"animation.mp4")

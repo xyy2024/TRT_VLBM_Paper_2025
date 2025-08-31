@@ -1,7 +1,23 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# from d2n5_couette import d2n5_couette as model
+#    Test code for Numerical Experiment Section 02 (Poiseuille Flow) Fig 04
+#    Copyright (C) 2025 Xu Yuyang (https://github.com/xyy2024)
+
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# 
+
 from d2n5_poiseuille import d2n5_poiseuille as model
 from _systools import cached_property
 from _plottools import rankfig
@@ -17,11 +33,6 @@ del test
 rank_graph = rankfig(prefix="Poiseuille", supxlabel='', log=f"graphic\\Poiseuille_00002_log.py")
 rank_graph.save.file_id = 2
 for gamma_low in [0.01, 0.1, 0.3, 0.5]:
-    # abs(1 - 2*gamma_low) < l
-    # 1 - abs(1 - 2*gamma_low) > l
-    # 2 - 2*gamma_low > l
-    # 2*gamma_low > l
-
     class submodel(model):
         @cached_property
         def y(self): return np.arange(self.Ny)*self.dx + gamma_low*self.dx + self.ymin
