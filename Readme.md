@@ -10,3 +10,10 @@ The correspondence between the file names and their contents is as follows:
 * `d*n*_***.py`: classes for specific flow.
 * `ne***.py`: codes for numerical experiments.
 * `Flow_Pass_Something_Animation/*.mp4`: animation figures mentioned in the paper.
+
+## Usage: how to simulate other situations?
+Simply inherit the base class in `d2n5_taylorgreen.py` or `d3n7_taylorgreen.py` and override some
+method or attributes of the base class. Tips for overriding can be found in the comments of the base class.
+
+The classes in `d*n*_***.py` can be regarded as examples or samples of how to override. And the codes in 
+`ne***.py` can be regarded as samples of using these classes for fluid simulation.
