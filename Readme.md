@@ -72,3 +72,16 @@ If you want to output animation, use `animation` to start the simulation. The an
 ## Cite
 
 If our code is useful for your study, please cite our article {Article#TODO}
+
+### BibTex
+```
+author = {BW She, YY Xu and J Zhao},
+title = {Two-relaxation-time Vectorial Lattice Boltzmann Method for Solving Incompressible Navier-Stokes Equations},
+journal = {Computer Methods in Applied Mechanics and Engineering},
+volume = {},
+number = {},
+pages = {},
+year = {},
+doi = {},
+URL = {https://www.arxiv.org/}
+```
