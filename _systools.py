@@ -18,9 +18,6 @@
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # 
 
-'''# 用于简单设置运行情况而设置的模块
-'''
-
 # 命令行进度条
 def printPercent(progress, total, decimals = 2, prefix:str = '', suffix:str = ''):
     '''打印命令行进度条'''
@@ -83,7 +80,7 @@ type Value = Any
 type Instance = Any
 
 class cached_property(_cached_property):
-    '''修改版 cached_property'''
+    '''Modified cached_property / 修改版 cached_property'''
     def __init__(self, func):
         super().__init__(func)
         self.funcs_before_set = []

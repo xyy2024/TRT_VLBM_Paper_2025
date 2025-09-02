@@ -309,8 +309,6 @@ def prt_mask_2d(
     xRange:tuple[Real, Real],
     yRange:tuple[Real, Real],
     mask_func:Callable[[Real, Real], Real]):
-    '''绘制遮罩
-    该函数会在 mask_func(x,y) > 0 的部分绘制一个遮罩。'''
     Nx = 1000
     Ny = 1000
     x = np.linspace(xRange[0], xRange[1], Nx)
@@ -342,33 +340,6 @@ class _ranksave(Save):
         return super().__call__(self.parent.fig, save_fig)
 
 class rankfig:
-    '''### 用于绘制误差阶图的类型
-    
-    #### 参数：
-    * rows： 参见 gridfig
-    * cols：参见 gridfig
-    * sharex：参见 gridfig
-    * sharey：参见 gridfig
-    * title：参见 gridfig
-    * prefix：参见 Save
-    * dir：参见 Save
-
-    #### 使用示例
-    >>> r = rankfig()
-    ##### 参考线 #####
-    参考线将在第一次添加线条时加入。
-    设置参考线阶
-    >>> r[0].refline_rank = 1
-    设置不画参考线
-    >>> r[0].refline_rank = None
-    设置画多条不同阶的参考线，目前仅支持两条不同颜色
-    >>> r[0].refline_rank = (1, 2)
-    ##### 添加线条 #####
-    >>> r[0].add_line(h, err, label, line_style)
-    具体参见 rankax.add_line
-    ##### 保存图像 #####
-    >>> r.save()
-    '''
     def __init__(self,
         rows:int = 1, 
         cols:int = 1, 
@@ -403,9 +374,6 @@ class rankfig:
         self.save = _ranksave(parent = self, prefix = prefix, dir = dir)
         
     def show(self, show_fig:bool = True):
-        '''释放图像内容，并删除该对象。
-        
-        如果 show_fig 为 True，则在删除对象前，会在新窗口展示图片内容。'''
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig.show({show_fig})')
@@ -422,7 +390,6 @@ class rankfig:
         return self.data[i]
   
 class rankax:
-    '''用于具体绘制图表的类型'''
     def __init__(self, ax:Axes, log:os.PathLike|str|bytes|None, index:int, 
                  xlabel:str = "h", ylabel:str = "Error", 
                  refline_rank:tuple[int, ...]|int|None = 2):
@@ -476,20 +443,26 @@ class rankax:
 
     def add_line(self, h:np.ndarray, err:np.ndarray, label:str = '', line_style:str|tuple[int, tuple[int, ...]]|None = 'solid') -> float:
         '''### 在误差图上加入关于步长 h 和误差 err 的线条，并返回误差阶。
-        #### 参数：
-        * h：步长数组
-        * err：误差数组
-        * label：线条在右下角会以 label 作为图例说明
-        * line_style：线条格式设置
+        <br /> Add lines about step size h and error err on the error plot and return the error order.
 
-        #### 关于 line_style
-        line_style 参数会设置线条的类型，常用：
-        * 'solid'：（默认）实心线条。
-        * 'dotted'：······ 形状的虚线。
-        * 'dashed'：------ 形状的虚线。
-        * 'dashdot'：·-·-· 形状的虚线。
-        特别的，如果 line_style 为 None，则不会画出 line。
-        更多设置参见：
+        #### 参数 / Parameters：
+        * h：步长数组 / array of step sizes
+        * err：误差数组 / array of errors that correspond to step size
+        * label：线条的图例说明 / label for the line
+        * line_style：线条格式设置 / see the chapter below
+
+        #### 关于 line_style / About `line_style`
+        `line_style` 参数会设置线条的类型，常用：<br />
+        The `line_style` parameter determines the style of the line. For example:
+        * `'solid'`：——
+        * `'dotted'`：······
+        * `'dashed'`：------
+        * `'dashdot'`：·-·-·-
+
+        特别的，如果 `line_style` 为 None，则只会画出散点图。<br />
+        Especially, if `line_style == None`, then only the scatterplot will be drawn.
+
+        更多设置参见 / More valid `line_style` settings can be found at：
         * https://matplotlib.org/stable/gallery/lines_bars_and_markers/linestyles.html
         '''
         if self.log is not None:

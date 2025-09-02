@@ -1,19 +1,74 @@
 # CODE FOR VLBM PAPER
 
-I use these codes to do the numerical experiments showed in my paper. The purpose of writing these programs is to apply the model to flows under different conditions as simply as possible.
+We use these codes to do the numerical experiments showed in our paper. The purpose of writing these programs is to apply the model to flows under different conditions as simply as possible.
 
-The correspondence between the file names and their contents is as follows:
+## Requirements
 
-* `_***.py`: some tools funtion.
-* `d2n5_taylorgreen.py`: base class for all models, especially for D2N5 model.
-* `d3n7_taylorgreen.py`: base class for D3N7 model.
-* `d*n*_***.py`: classes for specific flow.
-* `ne***.py`: codes for numerical experiments.
-* `Flow_Pass_Something_Animation/*.mp4`: animation figures mentioned in the paper.
+These are the environment dependencies of these code:
+* `python >= 3.13`
+* `matplotlib >= 3.9.2`
+* `numpy >= 2.2.3`
+If you need to output animations, the following dependencies is also required:
+* `ffmpeg`
+* `openh264` (optional)
 
-## Usage: how to simulate other situations?
-Simply inherit the base class in `d2n5_taylorgreen.py` or `d3n7_taylorgreen.py` and override some
-method or attributes of the base class. Tips for overriding can be found in the comments of the base class.
+## Menu
 
-The classes in `d*n*_***.py` can be regarded as examples or samples of how to override. And the codes in 
-`ne***.py` can be regarded as samples of using these classes for fluid simulation.
+The correspondence between the file/folder names and their contents is as follows:
+
+* `_*.py`: some tools funtion.
+* `d2n5_taylorgreen.py`: base class for solving all conditions, especially for 2D conditions.<br />
+This file also contains the setting for period boundary condition and initial velocity: $$\begin{align*}
+    u_0(x, y) &= -\cos(2\pi x -0.5\pi) \sin(2\pi y-0.5\pi),\\
+    v_0(x, y) &= \sin(2\pi x -0.5\pi) \cos(2\pi y-0.5\pi)
+\end{align*}$$
+* `d3n7_taylorgreen.py`: base class for solving 3D conditions.<br />
+This file also contains the setting for period boundary condition and initial velocity: $$\begin{align*}
+    u_0(x, y, z) &= -\cos(2\pi x -0.5\pi) \sin(2\pi y-0.5\pi),\\
+    v_0(x, y, z) &= \sin(2\pi x -0.5\pi) \cos(2\pi y-0.5\pi),\\
+    w_0(x, y, z) &= 0
+\end{align*}$$
+* `Flow Pass Something Animation`: numerical experiment result for flow pass something presented in the form of animation.
+* other directories: samples for simulate fluids under other bondary conditions and/or other initial velocities.
+
+## How to simulate fluids under other conditions?
+
+### Step 1. Setup the model.
+
+Write a new subclass of `d2n5_taylorgreen` or `d3n7_taylorgreen` (which can be found at `d2n5_taylorgreen.py` or `d3n7_taylorgreen.py`) and override some method or attributes of the base class according to the condition you want. Such as:
+
+```
+from d2n5_taylorgreen import d2n5_taylorgreen
+import numpy as np
+
+class sample(d2n5_taylorgreen):
+    def init_exact(self):  # Set the initial velocity to zero.
+        # This method shall return `u, v`.
+        return (np.zeros(self.X) for _ in range(2))
+
+    kf = math.tau
+    def get_outerforce(self):   # Set the general source term.
+        this = np.zeros((self.Nx, self.Ny, 2))
+        this[:,:,0] = np.sin(self.kf*self.Y)
+        return this
+```
+
+Tips for overriding can be found at `d2n5_taylorgreen.py`. 
+
+### Step 2. Run.
+
+Generate an instance of the new subclass and use one of these method `until_time()` `until_stable()` `until_step()` to start the simulation. 
+
+Then, use one of these method `fig()` `fig_with_error()` to show the result fig. Such as:
+
+```
+solver = sample(h = 0.1, nu = 0.1)
+solver.until_time(time = 10)
+solver.fig()
+```
+
+If you want to output animation, use `animation` to start the simulation. The animation of the result will be automatically generated.
+
+## Cite
+
+If our code is useful for your study, please cite our article {Article#TODO}
