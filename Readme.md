@@ -1,4 +1,4 @@
-# CODE FOR VLBM PAPER
+# Code for the TRT-VLBM Paper "Two-relaxation-time Vectorial Lattice Boltzmann Method for Solving Incompressible Navier–Stokes Equations" 
 
 We use these codes to do the numerical experiments showed in our paper. The purpose of writing these programs is to apply the model to flows under different conditions as simply as possible.
 
