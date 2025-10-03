@@ -38,7 +38,7 @@ def test(h_list, nu_list, file_id, average_relax_list):
                 test = model(h=h, nu=nu)
                 if not isinstance(average_relax, bool):
                     test.average_relax = average_relax[0](test)
-                if test.until_time(time=0.3):
+                if test.until_time(time=0):
                     err.append(test.get_error())
                 else:
                     err.append(float('nan'))

@@ -30,19 +30,12 @@ If you want to output animations, please install FFmpeg. Besides, I also recomme
 import numpy as np
 import matplotlib.pyplot as plt
 
-plt.rcParams["axes.labelsize"] = 'xx-large'
-plt.rcParams["axes.titlesize"] = 'xx-large'
-plt.rcParams["figure.labelsize"] = 'xx-large'
-plt.rcParams["figure.titlesize"] = 'xx-large'
-# plt.rcParams["font.size"] = 'xx-large'
-plt.rcParams["legend.fontsize"] = 'xx-large'
-plt.rcParams["legend.title_fontsize"] = 'xx-large'
-plt.rcParams["xtick.labelsize"] = 'xx-large'
-# plt.rcParams["xtick.major.size"] = 'xx-large'
-# plt.rcParams["xtick.minor.size"] = 'xx-large'
-plt.rcParams["ytick.labelsize"] = 'xx-large'
-# plt.rcParams["ytick.major.size"] = 'xx-large'
-# plt.rcParams["ytick.minor.size"] = 'xx-large'
+plt.rcParams["font.size"] = 1.728*12
+plt.rcParams["figure.labelsize"] = 24
+plt.rcParams["figure.titlesize"] = 24
+plt.rcParams["xtick.labelsize"] = 20
+plt.rcParams["ytick.labelsize"] = 20
+plt.rcParams['lines.markersize'] = 10
 
 # Rank figure
 from numpy.polynomial import Polynomial as poly
@@ -74,8 +67,8 @@ def gridfig(
     ''' plt.subplots and something else '''
     fig:Figure
     fig, _axs = plt.subplots(rows, cols, sharex=sharex, sharey=sharey, squeeze=False)
-    fig.set_figheight(rows*7)
-    fig.set_figwidth(cols*7)
+    fig.set_figheight(rows*8)
+    fig.set_figwidth(cols*8)
     if suptitle != "": fig.suptitle(suptitle)
     if supxlabel != "": fig.supxlabel(supxlabel)
     if supylabel != "": fig.supylabel(supylabel)
@@ -217,7 +210,7 @@ cmap_focuszero = LinearSegmentedColormap.from_list(
     colors = [(0.5, 0.8, 1), (0, 0.5, 1), (0, 0, 0), (1, 0.5, 0), (1, 0.8, 0.5)], 
     N = 10000)
 cmap = "coolwarm"
-unbroken_streamline = dict(broken_streamlines = False, linewidth = 0.3, density = (1, 0.5))
+unbroken_streamline = dict(broken_streamlines = False, linewidth = 0.3, density = (0.75, 0.75), arrowsize=2)
 
 def prt_2d(
     x:np.ndarray, y:np.ndarray, 
@@ -260,12 +253,12 @@ def prt_flow_2d(
     s = np.sqrt(u**2+v**2)
     #lines = ax.streamplot(x,y,u,v,color=s,cmap=cmap)
     lines = ax.streamplot(x,y,u.T,v.T,color=s.T,cmap=cmap,**kwargs)
-    ax.set_xlabel(xlabel = xlabel, fontsize = 'xx-large')
-    ax.set_ylabel(ylabel = ylabel, fontsize = 'xx-large')
-    ax.set_title(label = title, fontsize = 'xx-large')
-    ax.tick_params(labelsize = 'xx-large')
+    ax.set_xlabel(xlabel = xlabel)
+    ax.set_ylabel(ylabel = ylabel)
+    ax.set_title(label = title)
+    #ax.tick_params(labelsize = 'xx-large')
     cbar = fig.colorbar(lines.lines)
-    cbar.ax.tick_params(labelsize = 'xx-large')
+    #cbar.ax.tick_params(labelsize = 'xx-large')
     if show:
         plt.show()
     return None
@@ -294,12 +287,12 @@ def prt_dens_2d(
     if fig is None or ax is None:
         fig, ax = plt.subplots()
     surf = ax.contourf(x, y, u.T, cmap=cmap, **kwargs)
-    ax.set_xlabel(xlabel = xlabel, fontsize = 'xx-large')
-    ax.set_ylabel(ylabel = ylabel, fontsize = 'xx-large')
-    ax.set_title(label = title, fontsize = 'xx-large')
-    ax.tick_params(labelsize = 'xx-large')
+    ax.set_xlabel(xlabel = xlabel)
+    ax.set_ylabel(ylabel = ylabel)
+    ax.set_title(label = title)
+    #ax.tick_params(labelsize = 'xx-large')
     cbar = fig.colorbar(surf)
-    cbar.ax.tick_params(labelsize = 'xx-large')
+    #cbar.ax.tick_params(labelsize = 'xx-large')
     if show:
         plt.show()
     return None
@@ -309,6 +302,8 @@ def prt_mask_2d(
     xRange:tuple[Real, Real],
     yRange:tuple[Real, Real],
     mask_func:Callable[[Real, Real], Real]):
+    '''绘制遮罩
+    该函数会在 mask_func(x,y) > 0 的部分绘制一个遮罩。'''
     Nx = 1000
     Ny = 1000
     x = np.linspace(xRange[0], xRange[1], Nx)
@@ -340,6 +335,33 @@ class _ranksave(Save):
         return super().__call__(self.parent.fig, save_fig)
 
 class rankfig:
+    '''### 用于绘制误差阶图的类型
+    
+    #### 参数：
+    * rows： 参见 gridfig
+    * cols：参见 gridfig
+    * sharex：参见 gridfig
+    * sharey：参见 gridfig
+    * title：参见 gridfig
+    * prefix：参见 Save
+    * dir：参见 Save
+
+    #### 使用示例
+    >>> r = rankfig()
+    ##### 参考线 #####
+    参考线将在第一次添加线条时加入。
+    设置参考线阶
+    >>> r[0].refline_rank = 1
+    设置不画参考线
+    >>> r[0].refline_rank = None
+    设置画多条不同阶的参考线，目前仅支持两条不同颜色
+    >>> r[0].refline_rank = (1, 2)
+    ##### 添加线条 #####
+    >>> r[0].add_line(h, err, label, line_style)
+    具体参见 rankax.add_line
+    ##### 保存图像 #####
+    >>> r.save()
+    '''
     def __init__(self,
         rows:int = 1, 
         cols:int = 1, 
@@ -365,15 +387,18 @@ class rankfig:
             self.log = None
         self.fig, axs = gridfig(rows, cols, sharex, sharey, title)
         if supxlabel != "":
-            self.fig.supxlabel(supxlabel, fontsize = "xx-large") #, x=0.9, horizontalalignment = "right")
+            self.fig.supxlabel(supxlabel) #, x=0.9, horizontalalignment = "right")
         if supylabel != "":
-            self.fig.supylabel(supylabel, fontsize = "xx-large", x=0.0, horizontalalignment = "left", y=0.9, verticalalignment = "top")
+            self.fig.supylabel(supylabel, x=0.0, horizontalalignment = "left", y=0.9, verticalalignment = "top")
         self.data = []
         for i in range(len(axs)):
             self.data.append(rankax(axs[i], log = self.log, index = i))
         self.save = _ranksave(parent = self, prefix = prefix, dir = dir)
         
     def show(self, show_fig:bool = True):
+        '''释放图像内容，并删除该对象。
+        
+        如果 show_fig 为 True，则在删除对象前，会在新窗口展示图片内容。'''
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig.show({show_fig})')
@@ -390,18 +415,16 @@ class rankfig:
         return self.data[i]
   
 class rankax:
+    '''用于具体绘制图表的类型'''
     def __init__(self, ax:Axes, log:os.PathLike|str|bytes|None, index:int, 
-                 xlabel:str = "h", ylabel:str = "Error", 
                  refline_rank:tuple[int, ...]|int|None = 2):
         self.ax = ax
         self.log = log
         self.index = index
-        # self.ax.set_xlabel(xlabel, fontsize = 'xx-large')
-        # self.ax.set_ylabel(ylabel, fontsize = 'xx-large')
         self.ax.set_xscale('log')
         self.ax.set_yscale('log')
-        self.ax.tick_params(axis='y', labelsize = 'xx-large')
-        self.ax.tick_params(axis='x', labelsize = 'xx-large', which = 'both', rotation=30)
+        self.ax.tick_params(axis='y')
+        self.ax.tick_params(axis='x', which = 'both', rotation=30)
         # self.ax.xaxis.set_major_formatter('%f')
         # self.ax.set(xlabel=xlabel,ylabel=ylabel)
 
@@ -427,42 +450,36 @@ class rankax:
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig[{self.index}].set_title({text!r})\n')
-        self.ax.set_title(label=text, fontsize="xx-large")
+        self.ax.set_title(label=text)
 
     def set_xlabel(self, text:str = ""):
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig[{self.index}].set_xlabel({text!r})\n')
-        self.ax.set_xlabel(xlabel=text, fontsize="xx-large")
+        self.ax.set_xlabel(xlabel=text)
 
     def set_ylabel(self, text:str = ""):
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig[{self.index}].set_ylabel({text!r})\n')
-        self.ax.set_ylabel(ylabel=text, fontsize="xx-large")
+        self.ax.set_ylabel(ylabel=text)
 
     def add_line(self, h:np.ndarray, err:np.ndarray, label:str = '', line_style:str|tuple[int, tuple[int, ...]]|None = 'solid') -> float:
         '''### 在误差图上加入关于步长 h 和误差 err 的线条，并返回误差阶。
-        <br /> Add lines about step size h and error err on the error plot and return the error order.
+        #### 参数：
+        * h：步长数组
+        * err：误差数组
+        * label：线条在右下角会以 label 作为图例说明
+        * line_style：线条格式设置
 
-        #### 参数 / Parameters：
-        * h：步长数组 / array of step sizes
-        * err：误差数组 / array of errors that correspond to step size
-        * label：线条的图例说明 / label for the line
-        * line_style：线条格式设置 / see the chapter below
-
-        #### 关于 line_style / About `line_style`
-        `line_style` 参数会设置线条的类型，常用：<br />
-        The `line_style` parameter determines the style of the line. For example:
-        * `'solid'`：——
-        * `'dotted'`：······
-        * `'dashed'`：------
-        * `'dashdot'`：·-·-·-
-
-        特别的，如果 `line_style` 为 None，则只会画出散点图。<br />
-        Especially, if `line_style == None`, then only the scatterplot will be drawn.
-
-        更多设置参见 / More valid `line_style` settings can be found at：
+        #### 关于 line_style
+        line_style 参数会设置线条的类型，常用：
+        * 'solid'：（默认）实心线条。
+        * 'dotted'：······ 形状的虚线。
+        * 'dashed'：------ 形状的虚线。
+        * 'dashdot'：·-·-· 形状的虚线。
+        特别的，如果 line_style 为 None，则不会画出 line。
+        更多设置参见：
         * https://matplotlib.org/stable/gallery/lines_bars_and_markers/linestyles.html
         '''
         if self.log is not None:
@@ -508,7 +525,7 @@ class rankax:
             #self.ax.plot(h, np.exp(p2(lnh)), label=label, linestyle=line_style, color=self.color[self.line_color])
         else:
             self.ax.scatter(h, err, c = self.color[self.line_color], marker = self.marker[self.line_color], label=label)
-        self.ax.legend(loc='lower right', fontsize='xx-large')
+        self.ax.legend(loc='lower right')
         return rank
     
     def add_refline(self):
