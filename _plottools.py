@@ -18,13 +18,12 @@
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # 
 
-'''# 用于简单使用 matplotlib 而设计的工具模块 / A tool module designed for using matplotlib easily
+'''# A tool module designed for using matplotlib easily
 
-### 关于动画输出 / About Animation Output
+### About Animation Output
 
-如果要输出动画，请安装 FFmpeg。除此之外，虽然 openh264 并非必要，我还推荐安装 openh264。
-
-If you want to output animations, please install FFmpeg. Besides, I also recommend installing openh264.
+If you want to output animations, please install FFmpeg. 
+Besides, I also recommend installing openh264.
 '''
 
 import numpy as np
@@ -78,26 +77,22 @@ def show(fig:Figure, show_fig:bool = True) -> None:
     ''' plt.show and something else '''
     if show_fig: plt.show()
     else: plt.close(fig)
-os.error
-class Save:
-    '''### 用于自动处理存储 matplotlib 图像时的设置。
-    Used for automatically handling settings when storing figures.
 
-    #### 基本使用方式 / Basic Usage：
+class Save:
+    '''### Used for automatically handling settings when storing figures.
+
+    #### Basic Usage：
     >>> save = Save()
     >>> save(fig)
 
-    对于该类型的实例 save ，图像会被存储到：
-    <br />For an instance "save" of this class, the image will be saved to:
+    For an instance "save" of this class, the image will be saved to:
 
-    * f'{save.dir}/{save.prefix}_{self.file_id:0=5}.png'
+    * `f'{save.dir}/{save.prefix}_{self.file_id:0=5}.png'`
     
-    的位置。其中 {self.file_id:0=5} 是一个五位自增十进制数字，该数字被用于避免在存储时遇到的文件名冲突。
-    <br />which "{self.file_id:0=5}" represents a five-digit auto-incrementing decimal number, the number
+    which `{self.file_id:0=5}` represents a five-digit auto-incrementing decimal number, the number
     is used to avoid OSError when the file already exist and been locked or setted to read-only.
     
-    您可以通过以下方式来自定义其 dir 属性和 prefix 属性：
-    <br />You can set these attributes by
+    You can set these attributes by
 
     >>> save = Save('test001', 'test_graphic')
 
@@ -107,15 +102,12 @@ class Save:
     >>> save.prefix = 'test001'
     >>> save.dir = 'test_graphic'
 
-    需要注意的是，在每次为 prefix 或 dir 属性赋值时，file_id 都会被重置为0。
-    <br />Caution: every time you changed these attributes, the "file_id" will be reset to zero.
+    Caution: every time you changed these attributes, the "file_id" will be reset to zero.
 
-    #### 存储动画 / Saving animation
-    在已经存储了一些图像之后，您可以把之前存储的图像用 Save.animation() 方法将其组合成动画。
-    <br />After saving a bunch of figures, you can combine these image with method "Save.animation()"
+    #### Saving animation
+    After saving a bunch of figures, you can combine these image with method "Save.animation()"
     
-    具体内容参见 Save.animation() 的文档。该功能依赖 FFmpeg（必须）和 openh264（可选）。
-    <br />For detailed information, please refer to the documentation of Save.animation(). 
+    For detailed information, please refer to the documentation of Save.animation(). 
     This feature relies on FFmpeg (required) and openh264 (optional).
     '''
     file_id = 0
@@ -163,13 +155,13 @@ class Save:
         return None
 
     def animation(self, fps:float, file_name:str = 'output.mp4'):
-        '''### 将之前存储的图像组合成动画。 / Combine the previously stored images into an animation. 
+        '''### Combine the previously stored images into an animation. 
 
-        #### 参数 / Parameters
-        * fps：每秒的图像数<br />fps: Number of images per second
-        * file_name：存储动画的文件名，默认为 'output.mp4'<br />output file name, default is 'output.mp4' 
+        #### Parameters
+        * `fps`: number of images per second
+        * `file_name`：output file name, default is 'output.mp4' 
 
-        该动画会被存储到和图像同一文件夹下。<br />The animation will be stored in the same folder as the image.
+        The animation will be stored in the same folder as the image.
         '''
         if self.file_id == 0: return None
         os.chdir(self.dir)
@@ -217,14 +209,34 @@ def prt_2d(
     u:np.ndarray, v:np.ndarray|None = None, 
     fig:Figure|None = None, ax:Axes|None = None, 
     xlabel:str="", ylabel:str="", title:str="",
-    cmap:str|Colormap=cmap_positive_ignorezero, show:bool = False,
+    cmap:str|Colormap=cmap_positive_ignorezero, show:bool = False, log:bool = False,
     **kwargs
     ) -> None:
-    '''Draw 2d fig in given axes.'''
+    '''Draw 2d fig in given axes.
+
+    I use `u[i, j]` to store $u(x_i, y_j)$ instead of `u[j, i]` (which is matplotlib's default).
+    So I need a function to automatically transfer `u` to `u.T` to prevent mistakes.
+
+    ### Parameters:
+    * `x`: `numpy.ndarray`. Same as the parameter `x` in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `y`: `numpy.ndarray`. Same as the parameter `y` in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `u`: `numpy.ndarray`. 
+    * `v`: `numpy.ndarray|None`. If the parameter `v` is `None`, this function will draw a contourf plot at given 
+    figure and axes. If the parameter `v` is a `ndarray`, this function will draw a 
+    streamplot at given figure and axes.
+    * `fig`: `matplotlib.figure.Figure|None`. If `fig` is `None`, this function will create a new figure and axes.
+    * `ax`: `matplotlib.axes.Axes|None`. If `ax` is `None`, this function will create a new figure and axes.
+    * `xlabel`, `ylabel`, `title`: `str`. Same as the parameter in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `cmap`: `str|matplotlib.colors.Colormap`. Same as the parameter in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `show`: `bool`. If the parameter is `True`, the function will call `matplotlib.pyplot.show()`. Default is `False`.
+    * `log`: `bool`. If the parameter is `True`, the function will save the value of these parameters: `x`,`y`,`u`,`v`,`xlabel`,`ylabel`,`title`
+    to a file in the 'log' folder.
+    * `**kwargs`: other parameters that could pass to `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    '''
     if v is None:
-        return prt_dens_2d(x, y, u, fig, ax, xlabel, ylabel, title, cmap, show, **kwargs)
+        return prt_dens_2d(x, y, u, fig, ax, xlabel, ylabel, title, cmap, show, log, **kwargs)
     else:
-        return prt_flow_2d(x, y, u, v, fig, ax, xlabel, ylabel, title, cmap, show, **kwargs)
+        return prt_flow_2d(x, y, u, v, fig, ax, xlabel, ylabel, title, cmap, show, log, **kwargs)
 
 def prt_flow_2d(
     x:np.ndarray, y:np.ndarray, 
@@ -234,10 +246,30 @@ def prt_flow_2d(
     cmap:str|Colormap=cmap_positive_ignorezero, show:bool = False, log:bool = False,
     **kwargs
     ):
-    '''在给定的 ax 中绘制二维 streamplot 图像。'''
+    '''Draw streamplot in given axes.
+    
+    ### Parameters:
+    * `x`: `numpy.ndarray`. Same as the parameter `x` in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `y`: `numpy.ndarray`. Same as the parameter `y` in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `u`: `numpy.ndarray`. 
+    * `v`: `numpy.ndarray`. 
+    * `fig`: `matplotlib.figure.Figure|None`. If `fig` is `None`, this function will create a new figure and axes.
+    * `ax`: `matplotlib.axes.Axes|None`. If `ax` is `None`, this function will create a new figure and axes.
+    * `xlabel`, `ylabel`, `title`: `str`. Same as the parameter in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `cmap`: `str|matplotlib.colors.Colormap`. Same as the parameter in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `show`: `bool`. If the parameter is `True`, the function will call `matplotlib.pyplot.show()`. Default is `False`.
+    * `log`: `bool`. If the parameter is `True`, the function will save the value of these parameters: `x`,`y`,`u`,`v`,`xlabel`,`ylabel`,`title`
+    to a file in the 'log' folder.
+    * `**kwargs`: other parameters that could pass to `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    '''
     if log:
+        if os.path.exists('log'):
+            if os.path.isfile('log'):
+                raise OSError('Cannot create directory `log` for storing logs.')
+        else:
+            os.mkdir('log')
         timestamp = get_timestamp()
-        with open(f'log\\{timestamp} Streamplot.py', mode='x') as file:
+        with open(f'log\\{timestamp}_Streamplot.py', mode='x') as file:
             file.write('#!/usr/bin/python\n'
                        '# -*- coding: utf-8 -*-\n\n'
                        'from _plottools import prt_flow_2d\n'
@@ -271,8 +303,26 @@ def prt_dens_2d(
     cmap:str|Colormap=cmap_positive_ignorezero, show:bool = False, log:bool = False,
     **kwargs
     ):
-    '''在给定的 ax 中绘制二维 contourf 图像。'''
+    '''Draw contourf in given axes.
+    
+    ### Parameters:
+    * `x`: `numpy.ndarray`. Same as the parameter `x` in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `y`: `numpy.ndarray`. Same as the parameter `y` in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `u`: `numpy.ndarray`. 
+    * `fig`: `matplotlib.figure.Figure|None`. If `fig` is `None`, this function will create a new figure and axes.
+    * `ax`: `matplotlib.axes.Axes|None`. If `ax` is `None`, this function will create a new figure and axes.
+    * `xlabel`, `ylabel`, `title`: `str`. Same as the parameter in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `cmap`: `str|matplotlib.colors.Colormap`. Same as the parameter in `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.
+    * `show`: `bool`. If the parameter is `True`, the function will call `matplotlib.pyplot.show()`. Default is `False`.
+    * `log`: `bool`. If the parameter is `True`, the function will save the value of these parameters: `x`,`y`,`u`,`v`,`xlabel`,`ylabel`,`title`
+    to a file in the 'log' folder.
+    * `**kwargs`: other parameters that could pass to `matplotlib.pyplot.streamplot` or `matplotlib.pyplot.contourf`.'''
     if log:
+        if os.path.exists('log'):
+            if os.path.isfile('log'):
+                raise OSError('Cannot create directory `log` for storing logs.')
+        else:
+            os.mkdir('log')
         timestamp = get_timestamp()
         with open(f'log\\{timestamp} Contourf.py', mode='x') as file:
             file.write('#!/usr/bin/python\n'
@@ -302,8 +352,13 @@ def prt_mask_2d(
     xRange:tuple[Real, Real],
     yRange:tuple[Real, Real],
     mask_func:Callable[[Real, Real], Real]):
-    '''绘制遮罩
-    该函数会在 mask_func(x,y) > 0 的部分绘制一个遮罩。'''
+    '''Draw mask in given axes.
+
+    This function will draw a mask that covers `x, y` if `x, y` matches:
+    * `mask_func(x,y) > 0`
+    * `xRange[0] < x < xRange[1]`
+    * `yRange[0] < y < yRange[1]`
+    '''
     Nx = 1000
     Ny = 1000
     x = np.linspace(xRange[0], xRange[1], Nx)
@@ -335,32 +390,46 @@ class _ranksave(Save):
         return super().__call__(self.parent.fig, save_fig)
 
 class rankfig:
-    '''### 用于绘制误差阶图的类型
+    ''' A class which is used to draw figures that shows
+    the error order of a method.
     
-    #### 参数：
-    * rows： 参见 gridfig
-    * cols：参见 gridfig
-    * sharex：参见 gridfig
-    * sharey：参见 gridfig
-    * title：参见 gridfig
-    * prefix：参见 Save
-    * dir：参见 Save
+    ### Parameters
+    * `rows`, `cols`, `sharex`, `sharey`, `supxlabel`, `supylabel`: Same as those parameters in `gridfig`
+    * `title`: Same as the parameter `suptitle` in gridfig.
+    * `prefix`, `dir`: Same as those parameters in `Save`.
+    * `log`: `os.PathLike|str|bytes|None`. If `log` is not `None`, when operating on this instance, 
+    it will store some key data at the location indicated by the parameter `log`.
 
-    #### 使用示例
-    >>> r = rankfig()
-    ##### 参考线 #####
-    参考线将在第一次添加线条时加入。
-    设置参考线阶
-    >>> r[0].refline_rank = 1
-    设置不画参考线
-    >>> r[0].refline_rank = None
-    设置画多条不同阶的参考线，目前仅支持两条不同颜色
-    >>> r[0].refline_rank = (1, 2)
-    ##### 添加线条 #####
-    >>> r[0].add_line(h, err, label, line_style)
-    具体参见 rankax.add_line
-    ##### 保存图像 #####
-    >>> r.save()
+    ### Usage
+    ```
+    r = rankfig(2, 1)   # a figure with two axes.
+
+    r[0].add_line(
+        h = np.array([0.1, 0.05, 0.025]),
+        err = np.array([0.102, 0.0261, 0.0067]),
+        label = 'test1'
+    )   # add a line at the first axes.
+
+    r[1].add_line(
+        h = np.array([0.1, 0.05, 0.025]),
+        err = np.array([0.105, 0.0502, 0.0231]),
+        label = 'test1'
+    )   # add a line at the second axes.
+
+    r[0].refline_rank = (1, 2) # the first axes will draw two lines of reference, 
+                               # one has the slope of 1 and one has the slope of 2.
+                               
+    r[1].refline_rank = None   # the second axes will draw no line of reference.
+
+    r[0].set_xlabel('xlabel of the first axes') # set the xlabel of the first axes
+    r[0].set_ylabel('ylabel of the first axes') # set the ylabel of the first axes
+    r[1].set_title('title of the second axes')  # set the title of the second axes
+
+    r.save()   # save the figure. 
+               # If `prefix` and `dir` parameter remains the same when creating the instance.
+               # the figure will be saved by default at `graphic\\test_result_rank_00000.png`
+    r.show()   # show the figure.
+    ```
     '''
     def __init__(self,
         rows:int = 1, 
@@ -374,8 +443,8 @@ class rankfig:
         supylabel:str = "L2 Relative Error",
         log: os.PathLike|str|bytes|None = f"log\\{get_timestamp()} Rankfig.py"
         ):
+        self.log = log
         if log is not None:
-            self.log = log
             with open(self.log, mode=('w' if os.path.exists(self.log) else 'x')) as file:
                 file.write('#!/usr/bin/python\n'
                         '# -*- coding: utf-8 -*-\n\n'
@@ -383,8 +452,6 @@ class rankfig:
                         'import numpy as np\n\n'
                         'nan = float("nan")\n'
                         f'fig = rankfig({rows}, {cols}, {sharex!r}, {sharey!r}, {title!r}, {prefix!r}, {dir!r}, {supxlabel!r}, {supylabel!r}, None)\n')
-        else:
-            self.log = None
         self.fig, axs = gridfig(rows, cols, sharex, sharey, title)
         if supxlabel != "":
             self.fig.supxlabel(supxlabel) #, x=0.9, horizontalalignment = "right")
@@ -396,9 +463,11 @@ class rankfig:
         self.save = _ranksave(parent = self, prefix = prefix, dir = dir)
         
     def show(self, show_fig:bool = True):
-        '''释放图像内容，并删除该对象。
+        '''Release the memory occupied by this object.
         
-        如果 show_fig 为 True，则在删除对象前，会在新窗口展示图片内容。'''
+        ### Parameter
+        * `show_fig`: `bool`. If the parameter is `True`, then it will show
+        the figure before release the memory.'''
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig.show({show_fig})')
@@ -415,7 +484,7 @@ class rankfig:
         return self.data[i]
   
 class rankax:
-    '''用于具体绘制图表的类型'''
+    '''Type of the objects that can be getted by `rankfig.__getitem__()`.'''
     def __init__(self, ax:Axes, log:os.PathLike|str|bytes|None, index:int, 
                  refline_rank:tuple[int, ...]|int|None = 2):
         self.ax = ax
@@ -447,40 +516,34 @@ class rankax:
     refcolor = ['dimgray', 'rosybrown']
 
     def set_title(self, text:str = ""):
+        '''Set the title to `text`.'''
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig[{self.index}].set_title({text!r})\n')
         self.ax.set_title(label=text)
 
     def set_xlabel(self, text:str = ""):
+        '''Set the xlabel to `text`.'''
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig[{self.index}].set_xlabel({text!r})\n')
         self.ax.set_xlabel(xlabel=text)
 
     def set_ylabel(self, text:str = ""):
+        '''Set the ylabel to `text`.'''
         if self.log is not None:
             with open(self.log, mode='a') as file:
                 file.write(f'fig[{self.index}].set_ylabel({text!r})\n')
         self.ax.set_ylabel(ylabel=text)
 
     def add_line(self, h:np.ndarray, err:np.ndarray, label:str = '', line_style:str|tuple[int, tuple[int, ...]]|None = 'solid') -> float:
-        '''### 在误差图上加入关于步长 h 和误差 err 的线条，并返回误差阶。
-        #### 参数：
-        * h：步长数组
-        * err：误差数组
-        * label：线条在右下角会以 label 作为图例说明
-        * line_style：线条格式设置
-
-        #### 关于 line_style
-        line_style 参数会设置线条的类型，常用：
-        * 'solid'：（默认）实心线条。
-        * 'dotted'：······ 形状的虚线。
-        * 'dashed'：------ 形状的虚线。
-        * 'dashdot'：·-·-· 形状的虚线。
-        特别的，如果 line_style 为 None，则不会画出 line。
-        更多设置参见：
-        * https://matplotlib.org/stable/gallery/lines_bars_and_markers/linestyles.html
+        '''Add lines about the step size `h` and the error `err` on the error graph 
+        and return the error order.
+        ### Parameters
+        * `h`: `np.ndarray`. An array that stores the step size.
+        * `err`: `np.ndarray`. An array that stores the error that related to the step size.
+        * `label`: `str`. The discription that will show at the legend.
+        * `line_style`: see https://matplotlib.org/stable/gallery/lines_bars_and_markers/linestyles.html
         '''
         if self.log is not None:
             with open(self.log, mode='a') as file:
@@ -548,32 +611,10 @@ def get_rank(
     err:np.ndarray, 
     ax:Axes = None,
     label:str = '') -> float:
-    'Return the rank.'
+    'Return the order.'
     lnh = np.log(h)
     lne = np.log(err)
     p2 = poly.fit(lnh, lne, deg=(0, 1))
 
     rank = p2(1) - p2(0)
     return rank
-
-if __name__ == "__main__" and False: # For debug
-    x = np.arange(10)*0.1 + 0.05
-    y = np.arange(20)*0.1 + 0.05
-    X, Y = np.meshgrid(x, y)
-    u = X.T - Y.T
-    prt_2d(x, y, u)
-    plt.show()
-
-    v = Y.T - X.T
-    fig, ax = plt.subplots()
-    prt_2d(x, y, u, v, fig, ax)
-    def mask_func(x, y): return (x-0.5)**2 + (y-1)**2 - 0.2
-    prt_mask_2d(ax, (0,1), (0,2), mask_func)
-    plt.show()
-
-    h = np.array([0.1, 0.05, 0.025])
-    err = np.array([1, 0.25, 0.0625])
-    fig, ax = rankfig('test fig')
-    print(get_rank(h, err, ax, 'test label 1'))
-    print(get_rank(h, err, ax, 'test label 2'))
-    show(fig)

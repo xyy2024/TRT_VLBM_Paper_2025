@@ -8,27 +8,40 @@ These are the environment dependencies of these code:
 * `python >= 3.13`
 * `matplotlib >= 3.9.2`
 * `numpy >= 2.2.3`
-If you need to output animations, the following dependencies is also required:
+
+If you need to output animations, the following dependencies are also required:
 * `ffmpeg`
 * `openh264` (optional)
 
-## Menu
+## File structure
 
 The correspondence between the file/folder names and their contents is as follows:
 
-* `_*.py`: some tools funtion.
+### Utility Functions
+
+* `_nproll.py`: this file contains a Python implementation of the Matlab function `circshift`.
+* `_systools.py`: this file contains these functions and classes:
+* * *func* `printPercent`: Print the progress in the form of a percentage.
+* * *class* `error_behavior`: A context class for setting the error handling behavior of NumPy.
+* * *class* `cached_property`: Modified cached_property that allows you to register functions that will be called before or after the value of the property has been changed.
+* `_plottools.py`: this file contains several functions and classes that is useful when output graphics.
+
+### Main Model
+
 * `d2n5_taylorgreen.py`: base class for solving all conditions, especially for 2D conditions.<br />
-This file also contains the setting for period boundary condition and initial velocity: $$\begin{align*}
+This file also contains the setting for period boundary condition, zero outer body force, and initial velocity: $$\begin{align*}
     u_0(x, y) &= -\cos(2\pi x -0.5\pi) \sin(2\pi y-0.5\pi),\\
     v_0(x, y) &= \sin(2\pi x -0.5\pi) \cos(2\pi y-0.5\pi)
 \end{align*}$$
 * `d3n7_taylorgreen.py`: base class for solving 3D conditions.<br />
-This file also contains the setting for period boundary condition and initial velocity: $$\begin{align*}
+This file also contains the setting for period boundary condition, zero outer body force, and initial velocity: $$\begin{align*}
     u_0(x, y, z) &= -\cos(2\pi x -0.5\pi) \sin(2\pi y-0.5\pi),\\
     v_0(x, y, z) &= \sin(2\pi x -0.5\pi) \cos(2\pi y-0.5\pi),\\
     w_0(x, y, z) &= 0
 \end{align*}$$
-* `Flow Pass Something Animation`: numerical experiment result for flow pass something presented in the form of animation.
+
+### Others
+* `flow_pass_cylinder_animation.mp4`: numerical experiment result for flow pass something presented in the form of animation.
 * other directories: samples for simulate fluids under other bondary conditions and/or other initial velocities.
 
 ## How to simulate fluids under other conditions?
@@ -71,17 +84,8 @@ If you want to output animation, use `animation` to start the simulation. The an
 
 ## Cite
 
-If our code is useful for your study, please cite our article {Article#TODO}
-
+If our code is useful for your study, please cite our article.
+<!-- TODO
 ### BibTex
-```
-author = {BW She, YY Xu and J Zhao},
-title = {Two-relaxation-time Vectorial Lattice Boltzmann Method for Solving Incompressible Navier-Stokes Equations},
-journal = {Computer Methods in Applied Mechanics and Engineering},
-volume = {},
-number = {},
-pages = {},
-year = {},
-doi = {},
-URL = {https://www.arxiv.org/}
-```
+
+-->
