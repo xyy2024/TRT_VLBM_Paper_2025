@@ -1,8 +1,2 @@
-These are the environment dependencies of these code:
-* `python >= 3.13`
-* `matplotlib >= 3.9.2`
-* `numpy >= 2.2.3`
-
-If you need to output animations, the following dependencies are also required:
-* `ffmpeg`
-* `openh264` (optional)
+matplotlib>=3.9.2
+numpy>=2.2.3
