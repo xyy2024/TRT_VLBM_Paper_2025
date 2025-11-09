@@ -1,4 +1,4 @@
-# Code for the TRT-VLBM Paper "Two-relaxation-time Vectorial Lattice Boltzmann Method for Solving Incompressible Navier–Stokes Equations" 
+# Code for the TRT-VLBM Paper
 
 We use these codes to do the numerical experiments showed in our paper. The purpose of writing these programs is to apply the model to flows under different conditions as simply as possible.
 
@@ -29,12 +29,17 @@ The correspondence between the file/folder names and their contents is as follow
 ### Main Model
 
 * `d2n5_taylorgreen.py`: base class for solving all conditions, especially for 2D conditions.<br />
-This file also contains the setting for period boundary condition, zero outer body force, and initial velocity: $$\begin{align*}
+This file also contains the setting for period boundary condition, zero outer body force, and initial velocity:
+
+$$\begin{align*}
     u_0(x, y) &= -\cos(2\pi x -0.5\pi) \sin(2\pi y-0.5\pi),\\
     v_0(x, y) &= \sin(2\pi x -0.5\pi) \cos(2\pi y-0.5\pi)
 \end{align*}$$
+
 * `d3n7_taylorgreen.py`: base class for solving 3D conditions.<br />
-This file also contains the setting for period boundary condition, zero outer body force, and initial velocity: $$\begin{align*}
+This file also contains the setting for period boundary condition, zero outer body force, and initial velocity:
+
+$$\begin{align*}
     u_0(x, y, z) &= -\cos(2\pi x -0.5\pi) \sin(2\pi y-0.5\pi),\\
     v_0(x, y, z) &= \sin(2\pi x -0.5\pi) \cos(2\pi y-0.5\pi),\\
     w_0(x, y, z) &= 0
