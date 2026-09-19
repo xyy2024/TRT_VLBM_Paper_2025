@@ -1,29 +1,28 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
-#    Two-Relaxation-Time D3N7 VLBM Base Program
-#    Copyright (C) 2025 Xu Yuyang
-
-#    This program is free software: you can redistribute it and/or modify
-#    it under the terms of the GNU General Public License as published by
-#    the Free Software Foundation, either version 3 of the License, or
-#    (at your option) any later version.
-
-#    This program is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU General Public License for more details.
-
-#    You should have received a copy of the GNU General Public License
-#    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-# 
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2025 Xu Yuyang
+#
+# This file is part of the TRT-VLBM experiment reproduction code.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program (see LICENSE). If not, see
+# <https://www.gnu.org/licenses/>.
 
 import numpy as np
 from _systools import cached_property
-from _plottools import gridfig, show
 from d2n5_taylorgreen import d2n5_taylorgreen
 
-from typing import Callable
 
 import math
 
@@ -53,7 +52,7 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
     @cached_property
     def Nz(self): return math.ceil((self.zmax-self.zmin)/self.dx)
     @cached_property
-    def z(self): return np.arange(self.Nz)*self.dx + 0.5*self.dx + self.zmin
+    def z(self): return np.arange(self.Nz)*self.dx + self.zmin + self.xshift*self.dx
     @property
     def shape(self): return self.Nx, self.Ny, self.Nz
     @property
@@ -70,9 +69,10 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
     def init_value(self):
         '''处理初始状态'''
         u0, v0, w0 = self.init_exact()
+        pressure0 = np.asarray(self.exact_pressure(), dtype=float)
 
         self.w = np.zeros(self.shapew)
-        self.w[:,:,:,0] = np.ones(self.shape)
+        self.w[:,:,:,0] = 1 + self.h**2*pressure0
         self.w[:,:,:,1] = u0*self.h*self.w[:,:,:,0]
         self.w[:,:,:,2] = v0*self.h*self.w[:,:,:,0]
         self.w[:,:,:,3] = w0*self.h*self.w[:,:,:,0]
@@ -113,6 +113,16 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
         w = np.zeros(z.shape)
         
         return u, v, w
+
+    def exact_pressure(
+        self,
+        x:np.ndarray|None = None,
+        y:np.ndarray|None = None,
+        z:np.ndarray|None = None,
+        ):
+        if x is None: x = self.X
+        if y is None: y = self.Y
+        return super().exact_pressure(x, y)
     
     # 设置边界
     def border_func(self, x:np.ndarray, y:np.ndarray, z:np.ndarray):
@@ -143,21 +153,30 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
     ################################################################################################
 
     # 计算数值压强
+    def get_numerical_pressure(self, w:np.ndarray|None = None):
+        return super().get_numerical_pressure(w)
+
     def get_p(self, w:np.ndarray|None = None):
-        if w is None:
-            w = self.w
-        return (w[:,:,:,0] - 1)/self.h**2
+        return self.get_numerical_pressure(w)
 
     # 计算平衡分布
-    def get_m(self, w:np.ndarray|None = None):
+    def get_m(self, w:np.ndarray|None = None, out:np.ndarray|None = None):
         if w is None:
             w = self.w
         Nx, Ny, Nz = w.shape[0:3]
 
         P = self.get_p(w)
-        A1 = np.zeros(self.shapew)
-        A2 = np.zeros(self.shapew)
-        A3 = np.zeros(self.shapew)
+        if (
+            isinstance(getattr(self, '_A1', None), np.ndarray)
+            and self._A1.shape == w.shape
+        ):
+            A1 = self._A1
+            A2 = self._A2
+            A3 = self._A3
+        else:
+            A1 = np.empty(w.shape, dtype=float)
+            A2 = np.empty(w.shape, dtype=float)
+            A3 = np.empty(w.shape, dtype=float)
         A1[:,:,:,0] = w[:,:,:,1]
         A1[:,:,:,1] = (w[:,:,:,1]**2)/w[:,:,:,0] + self.h**2*P
         A1[:,:,:,2] = (w[:,:,:,1]*w[:,:,:,2])/w[:,:,:,0]
@@ -171,7 +190,10 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
         A3[:,:,:,2] = A2[:,:,:,3]
         A3[:,:,:,3] = (w[:,:,:,3]**2)/w[:,:,:,0] + self.h**2*P
 
-        m = np.zeros((Nx, Ny, Nz, 7, 4))
+        if out is None:
+            m = np.empty((Nx, Ny, Nz, 7, 4), dtype=float)
+        else:
+            m = out
 
         m[:,:,:,0,:] = self.a*w + 0.5*self.alpha*A1
         m[:,:,:,1,:] = self.a*w + 0.5*self.alpha*A2
@@ -183,10 +205,36 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
         return m
     
     # 计算碰撞步骤的结果
-    def get_fstar(self, m):
-        fne = m - self.f
-        fstar = self.f + self.relax1*fne + self.relax2*fne[:,:,:,self.opp,:]
-        fstar[:,:,:,6,1:] += self.alpha*self.h**3*self.get_outerforce()
+    def get_fstar(
+        self,
+        m,
+        out:np.ndarray|None = None,
+        fne_out:np.ndarray|None = None,
+        ):
+        if fne_out is None:
+            fne = np.empty_like(self.f)
+        else:
+            fne = fne_out
+        np.subtract(m, self.f, out=fne)
+
+        if out is None:
+            fstar = np.empty_like(self.f)
+        else:
+            fstar = out
+        np.multiply(fne, self.relax1, out=fstar)
+        np.add(fstar, self.f, out=fstar)
+        for direction, opposite in enumerate(self.opp):
+            fstar[:,:,:,direction,:] += self.relax2*fne[:,:,:,opposite,:]
+
+        outerforce = self._get_outerforce_array()
+        if self._force_term.shape != outerforce.shape:
+            self._force_term = np.empty_like(outerforce)
+        np.multiply(
+            outerforce,
+            self.alpha*self.h**3,
+            out=self._force_term,
+        )
+        fstar[:,:,:,6,1:] += self._force_term
         return fstar
     
     ################################################################################################
@@ -194,7 +242,7 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
     ################################################################################################
 
     @property
-    def _general_border_property(self):
+    def _general_border_property_full(self):
         def border_property():
             this = dict() # 最终要 return this
 
@@ -268,75 +316,191 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
                 self._general_border_property_time = self.t
             return self._general_border_property_value
 
+    def _calculate_general_border_property(self):
+        this = {}
+
+        in_border = self.border_func(self.X, self.Y, self.Z) < 0
+        this["in_border"] = in_border
+        this["in_border_numtype"] = in_border.astype(float)
+
+        ex = np.asarray(self.Ex[0])
+        ey = np.asarray(self.Ex[1])
+        ez = np.asarray(self.Ex[2])
+
+        near_border = np.empty(self.shape + (self.NE,), dtype=bool)
+        for direction in range(self.NE):
+            near_border[:, :, :, direction] = (
+                in_border
+                & (
+                    self.border_func(
+                        self.X - ex[direction] * self.dx,
+                        self.Y - ey[direction] * self.dx,
+                        self.Z - ez[direction] * self.dx,
+                    ) > 0
+                )
+            )
+
+        this["near_border"] = near_border
+        this["near_border_numtype"] = near_border.astype(float)
+
+        border_index = np.nonzero(near_border)
+        x_index, y_index, z_index, direction_index = border_index
+        this["border_index"] = border_index
+        this["border_opposite"] = np.asarray(
+            self.opp,
+            dtype=np.intp,
+        )[direction_index]
+        this["border_E"] = np.column_stack((
+            ex[direction_index],
+            ey[direction_index],
+            ez[direction_index],
+        ))
+
+        borderX = np.zeros(near_border.shape)
+        borderY = np.zeros(near_border.shape)
+        borderZ = np.zeros(near_border.shape)
+        gamma = np.zeros(near_border.shape)
+        l_value = np.zeros(near_border.shape)
+
+        if direction_index.size == 0:
+            this["borderX"] = borderX
+            this["borderY"] = borderY
+            this["borderZ"] = borderZ
+            this["gamma"] = gamma
+            this["l"] = l_value
+            return this
+
+        Xin = self.X[x_index, y_index, z_index].copy()
+        Yin = self.Y[x_index, y_index, z_index].copy()
+        Zin = self.Z[x_index, y_index, z_index].copy()
+        Gin = np.zeros(direction_index.size)
+
+        Xout = Xin - ex[direction_index] * self.dx
+        Yout = Yin - ey[direction_index] * self.dx
+        Zout = Zin - ez[direction_index] * self.dx
+        Gout = np.ones(direction_index.size)
+
+        for _ in range(52):
+            Xmid = (Xout + Xin) * 0.5
+            Ymid = (Yout + Yin) * 0.5
+            Zmid = (Zout + Zin) * 0.5
+            Gmid = (Gout + Gin) * 0.5
+            Bmid = self.border_func(Xmid, Ymid, Zmid)
+
+            mid_out_border = Bmid >= 0
+            mid_in_border = Bmid <= 0
+
+            Xout[mid_out_border] = Xmid[mid_out_border]
+            Yout[mid_out_border] = Ymid[mid_out_border]
+            Zout[mid_out_border] = Zmid[mid_out_border]
+            Gout[mid_out_border] = Gmid[mid_out_border]
+
+            Xin[mid_in_border] = Xmid[mid_in_border]
+            Yin[mid_in_border] = Ymid[mid_in_border]
+            Zin[mid_in_border] = Zmid[mid_in_border]
+            Gin[mid_in_border] = Gmid[mid_in_border]
+
+        borderX_link = (Xout + Xin) * 0.5
+        borderY_link = (Yout + Yin) * 0.5
+        borderZ_link = (Zout + Zin) * 0.5
+        gamma_link = (Gout + Gin) * 0.5
+
+        Lmax = 2 * gamma_link
+        Lmin = np.maximum(Lmax - 1, 0)
+        l_link = (Lmin + Lmax) * 0.5
+
+        borderX[border_index] = borderX_link
+        borderY[border_index] = borderY_link
+        borderZ[border_index] = borderZ_link
+        gamma[border_index] = gamma_link
+        l_value[border_index] = l_link
+
+        this["borderX"] = borderX
+        this["borderY"] = borderY
+        this["borderZ"] = borderZ
+        this["gamma"] = gamma
+        this["l"] = l_value
+        return this
+
+    @property
+    def _general_border_property(self):
+        if self.border_type == 'static':
+            if (
+                self._general_border_property_value is None
+                or "border_index" not in self._general_border_property_value
+            ):
+                cache_key = self.border_geometry_cache_key()
+                border_data = self._shared_border_geometry_cache.get(cache_key)
+                if border_data is None:
+                    border_data = self._calculate_general_border_property()
+                    self._shared_border_geometry_cache[cache_key] = border_data
+                self._general_border_property_value = border_data
+            return self._general_border_property_value
+        else: # dynamic border
+            if (
+                self._general_border_property_time != self.t
+                or self._general_border_property_value is None
+                or "border_index" not in self._general_border_property_value
+            ):
+                self._general_border_property_value = self._calculate_general_border_property()
+                self._general_border_property_time = self.t
+            return self._general_border_property_value
+
     @property
     def in_border_numtype_w(self): return np.zeros(self.shapew) + self.in_border_numtype[:,:,:,None]
     @property
     def borderZ(self): return self._general_border_property["borderZ"]
 
     def border_condition(self, nextf) -> np.ndarray:
-        '''视情况使用Dirichlet边界或周期边界'''
-        ub, vb, wb = self.exact(self.borderX, self.borderY, self.borderZ)
-        ''' 原始算式：
-        nextf[x_index, y_index, i, 0] = (
-            l*self.fstar[x_index, y_index, i, 0]
-            +(1+l-2*gamma)*self.f[x_index, y_index, self.opp[i], 0]
-            +(2*gamma-l)*self.fstar[x_index, y_index, self.opp[i], 0]
-            +self.h*self.alpha*密度*法向速度*(-1)
-            # 特别的：
-            # i = 0 -> 法向速度*(-1) = u
-            # i = 1 -> 法向速度*(-1) = v
-            # i = 2 -> 法向速度*(-1) = -u
-            # i = 3 -> 法向速度*(-1) = -v
-            )/(1+l)
-        '''
-        delta_rho_border = np.zeros((self.Nx, self.Ny, self.Nz, 7))
-        delta_rho_border[:,:,:,0] += ub[:,:,:,0]
-        delta_rho_border[:,:,:,1] += vb[:,:,:,1]
-        delta_rho_border[:,:,:,2] += wb[:,:,:,2]
-        delta_rho_border[:,:,:,3] -= ub[:,:,:,3]
-        delta_rho_border[:,:,:,4] -= vb[:,:,:,4]
-        delta_rho_border[:,:,:,5] -= wb[:,:,:,5]
-        nextf[:,:,:,:,0] = (
-            (1 - self.near_border_numtype)*nextf[:,:,:,:,0]
-            + self.near_border_numtype*(
-                self.l*self.fstar[:,:,:,:,0]
-                + (1 + self.l - 2*self.gamma)*self.f[:,:,:,self.opp,0]
-                + (2*self.gamma - self.l)*self.fstar[:,:,:,self.opp,0]
-                + self.h*self.alpha*delta_rho_border
-            )/(1+self.l))
-        ''' 原始算式：
-        nextf[x_index, y_index, i, 1:] = (
-            l*self.fstar[x_index, y_index, i, 1:]
-            -(1+l-2*gamma)*self.f[x_index, y_index, self.opp[i], 1:]
-            -(2*gamma-l)*self.fstar[x_index, y_index, self.opp[i], 1:]
-            + 2*self.h*self.a*np.array([u,v])[None,:]
-            # u, v 指的是边界处的速度
-            )/(1+l)
-        '''
-        nextf[:,:,:,:,1] = (
-            (1 - self.near_border_numtype)*nextf[:,:,:,:,1]
-            + self.near_border_numtype*(
-                self.l*self.fstar[:,:,:,:,1]
-                - (1 + self.l - 2*self.gamma)*self.f[:,:,:,self.opp,1]
-                - (2*self.gamma - self.l)*self.fstar[:,:,:,self.opp,1]
-                + 2*self.h*self.a*ub
-            )/(1+self.l))
-        nextf[:,:,:,:,2] = (
-            (1 - self.near_border_numtype)*nextf[:,:,:,:,2]
-            + self.near_border_numtype*(
-                self.l*self.fstar[:,:,:,:,2]
-                - (1 + self.l - 2*self.gamma)*self.f[:,:,:,self.opp,2]
-                - (2*self.gamma - self.l)*self.fstar[:,:,:,self.opp,2]
-                + 2*self.h*self.a*vb
-            )/(1+self.l))
-        nextf[:,:,:,:,3] = (
-            (1 - self.near_border_numtype)*nextf[:,:,:,:,3]
-            + self.near_border_numtype*(
-                self.l*self.fstar[:,:,:,:,3]
-                - (1 + self.l - 2*self.gamma)*self.f[:,:,:,self.opp,3]
-                - (2*self.gamma - self.l)*self.fstar[:,:,:,self.opp,3]
-                + 2*self.h*self.a*wb
-            )/(1+self.l))
+        '''Apply the boundary condition only at links crossing the boundary.'''
+        border_data = self._general_border_property
+        border_index = border_data["border_index"]
+        direction_index = border_index[-1]
+
+        if direction_index.size == 0:
+            return nextf
+
+        x_index, y_index, z_index, _ = border_index
+        opposite_index = (
+            x_index,
+            y_index,
+            z_index,
+            border_data["border_opposite"],
+        )
+
+        borderX = border_data["borderX"][border_index]
+        borderY = border_data["borderY"][border_index]
+        borderZ = border_data["borderZ"][border_index]
+        gamma = border_data["gamma"][border_index]
+
+        # Access self.l so subclasses can override the boundary parameter.
+        l_full = np.broadcast_to(np.asarray(self.l), border_data["gamma"].shape)
+        l_value = l_full[border_index]
+
+        ub, vb, wb = self.exact(borderX, borderY, borderZ)
+        ub = np.broadcast_to(np.asarray(ub), gamma.shape)
+        vb = np.broadcast_to(np.asarray(vb), gamma.shape)
+        wb = np.broadcast_to(np.asarray(wb), gamma.shape)
+        wall_velocity = np.column_stack((ub, vb, wb))
+
+        delta_rho = np.sum(wall_velocity * border_data["border_E"], axis=1)
+        denominator = 1 + l_value
+        coefficient_old = 1 + l_value - 2 * gamma
+        coefficient_star = 2 * gamma - l_value
+
+        nextf[border_index + (0,)] = (
+            l_value * self.fstar[border_index + (0,)]
+            + coefficient_old * self.f[opposite_index + (0,)]
+            + coefficient_star * self.fstar[opposite_index + (0,)]
+            + self.h * self.alpha * delta_rho
+        ) / denominator
+
+        nextf[border_index + (slice(1, None),)] = (
+            l_value[:, None] * self.fstar[border_index + (slice(1, None),)]
+            - coefficient_old[:, None] * self.f[opposite_index + (slice(1, None),)]
+            - coefficient_star[:, None] * self.fstar[opposite_index + (slice(1, None),)]
+            + 2 * self.h * self.a * wall_velocity
+        ) / denominator[:, None]
         return nextf
 
     ################################################################################################
@@ -362,49 +526,14 @@ class d3n7_taylorgreen(d2n5_taylorgreen):
     def get_precise_speed(self):
         return super().get_precise_speed()
 
+    def get_error(self) -> np.ndarray:
+        return super().get_error()
+
+
     ################################################################################################
     ######################################### 绘制计算结果 #########################################
     ################################################################################################
 
-    def fig_with_error(self, save_fig:bool = False, show_fig:bool = True, setting:None|Callable = None):
-        if self.overflowed:
-            L2_Relative_error = float('nan')
-        else:
-            u_pre, v_pre, w_pre = self.get_precise_speed()
-            u_num, v_num, w_num = self.get_numerical_speed()
-            
-            u_err = u_pre - u_num
-            v_err = v_pre - v_num
-            w_err = w_pre - w_num
 
-            L2_Relative_error = math.sqrt((u_err**2 + v_err**2 + w_err**2).sum()/(u_pre**2 + v_pre**2 + w_pre**2).sum())
-
-            if L2_Relative_error > 1:
-                L2_Relative_error = float('nan')
-        
-        if show_fig or save_fig:
-            if setting is None:
-                fig, axs = self.fig_default_setting_with_error(u_num, v_num, w_num, u_pre, v_pre, w_pre, u_err, v_err, w_err, L2_Relative_error)
-            else:
-                fig, axs = setting(self, u_num, v_num, w_num, u_pre, v_pre, w_pre, u_err, v_err, w_err, L2_Relative_error)
-            self.save(fig = fig, save_fig = save_fig)
-            show(fig = fig, show_fig = show_fig)
-        return L2_Relative_error
-
-    def fig_default_setting_with_error(self, u_num, v_num, w_num, u_pre, v_pre, w_pre, u_err, v_err, w_err, L2_Relative_error):
-        fig, axs = gridfig(1, 1)
-        axs[0].text(0.5, 0.5, "There is no default fig for D3 cases.")
-        return fig, axs
     
-    def fig_default_setting(self):
-        # u_num, v_num, w_num = self.get_numerical_speed()
-        fig, axs = gridfig(1, 1)
-        axs[0].text(0.5, 0.5, "There is no default fig for D3 cases.")
-        return fig, axs
 
-if __name__ == "__main__":
-    nu_list = [0.001, 0.01, 0.1]
-    for nu in nu_list:
-        test = d3n7_taylorgreen(h=0.1, nu=nu)
-        test.until_time(1)
-        print(test.get_error())

@@ -1,31 +1,34 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
-#    Two-Relaxation-Time D2N5 VLBM Base Program
-#    Copyright (C) 2025 Xu Yuyang
-
-#    This program is free software: you can redistribute it and/or modify
-#    it under the terms of the GNU General Public License as published by
-#    the Free Software Foundation, either version 3 of the License, or
-#    (at your option) any later version.
-
-#    This program is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU General Public License for more details.
-
-#    You should have received a copy of the GNU General Public License
-#    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-# 
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2025 Xu Yuyang
+#
+# This file is part of the TRT-VLBM experiment reproduction code.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program (see LICENSE). If not, see
+# <https://www.gnu.org/licenses/>.
 
 import numpy as np
 from _systools import error_behavior, cached_property, printPercent
-from _plottools import prt_2d, gridfig, prt_mask_2d, show, Save
 from _nproll import circshift
 
-from typing import Callable, Literal
+from typing import Literal
 
 import math
+import os
+import pickle
+
 
 class d2n5_taylorgreen:
     '''D2N5 Solver Base Class
@@ -54,6 +57,17 @@ class d2n5_taylorgreen:
     # 
     xmin, xmax = 0, 1
     ymin, ymax = 0, 1
+    xshift = 0.5
+
+    # Taylor--Green parameters from Section 4.3.  They are constructor
+    # parameters so that both the initial density and velocity are built from
+    # the same analytical solution when a different exact vortex is requested.
+    U0 = 1.0
+    k1 = 2*math.pi
+    k2 = 2*math.pi
+    b1 = -0.5*math.pi
+    b2 = -0.5*math.pi
+    initialization_protocol = 'parameterized-equilibrium-v1'
 
     # Set the value of Δx and Δt
     # 设置Δx和Δt的数值
@@ -71,9 +85,9 @@ class d2n5_taylorgreen:
     @cached_property
     def Ny(self): return math.ceil((self.ymax-self.ymin)/self.dx)
     @cached_property
-    def x(self): return np.arange(self.Nx)*self.dx + self.xmin + 0.5*self.dx
+    def x(self): return np.arange(self.Nx)*self.dx + self.xmin + self.xshift*self.dx
     @cached_property
-    def y(self): return np.arange(self.Ny)*self.dx + self.ymin + 0.5*self.dx
+    def y(self): return np.arange(self.Ny)*self.dx + self.ymin + self.xshift*self.dx
     @property
     def shape(self): return self.Nx, self.Ny
     @property
@@ -83,6 +97,7 @@ class d2n5_taylorgreen:
 
     # Make meshgrid for Solver Nodes
     # As a result: self.X[i, j] == self.x[i], self.Y[i, j] == self.y[j]
+    #
     # 通过空间节点设置生成网格
     # 结果：使得 X[i, j] == x[i], Y[i, j] == y[j]
     def init_node(self):
@@ -99,17 +114,50 @@ class d2n5_taylorgreen:
     def init_value(self):
         '''处理初始状态'''
         u0, v0 = self.init_exact()
+        pressure0 = np.asarray(self.exact_pressure(), dtype=float)
 
         self.w = np.zeros(self.shapew)
-        self.w[:,:,0] = np.ones(self.shape)
+        self.w[:,:,0] = 1 + self.h**2*pressure0
         self.w[:,:,1] = u0*self.h*self.w[:,:,0]
         self.w[:,:,2] = v0*self.h*self.w[:,:,0]
 
-    def __init__(self, h = 0.1, nu = 1/6):
+    def __init__(
+        self,
+        h=0.1,
+        nu=1/6,
+        xshift=None,
+        *,
+        U0=None,
+        k1=None,
+        k2=None,
+        b1=None,
+        b2=None,
+        a=None,
+        alpha=None,
+        s_plus=None,
+        ):
         self.iter_count = 0
 
         self.h = h
         self.nu = nu
+        self.xshift = type(self).xshift if xshift is None else xshift
+        self.U0 = type(self).U0 if U0 is None else U0
+        self.k1 = type(self).k1 if k1 is None else k1
+        self.k2 = type(self).k2 if k2 is None else k2
+        self.b1 = type(self).b1 if b1 is None else b1
+        self.b2 = type(self).b2 if b2 is None else b2
+        # The equilibrium populations must be formed with the requested
+        # parameters.  Store constructor overrides before init_relax(),
+        # init_delta(), init_value(), and get_m() are called.
+        if a is not None:
+            self.__dict__['a'] = a
+        if alpha is not None:
+            self.__dict__['alpha'] = alpha
+        if s_plus is not None:
+            self._s_plus = s_plus
+        self.initialization_protocol = type(self).initialization_protocol
+        self._general_border_property_value = None
+        self._general_border_property_time = None
 
         self.init_relax()
         self.init_delta()
@@ -117,16 +165,94 @@ class d2n5_taylorgreen:
         self.init_value()
 
         self.f = self.get_m()
-        self.save = Save(self.default_prefix)
-    
-    # 保存图像时的文件名前缀设置
-    # NOTE: 如果要事后修改此项设置，请修改 self.save.prefix
-    # File Prefix when Saving Figure
-    # NOTE: If you need to change the prefix after solver instance was initialized. You can edit `self.save.prefix`
-    @property
-    def default_prefix(self):
-        return 'test_result_' + self.__class__.__name__ + (f'_h{float(self.h):.5}nu{float(self.nu):.5}').replace('.','')
+        self.init_work_arrays()
 
+    def init_work_arrays(self):
+        '''Allocate arrays reused by the collision and transport steps.'''
+        self.m = np.empty_like(self.f)
+        self.fstar = np.empty_like(self.f)
+        self.nextf = np.empty_like(self.f)
+        self._A1 = np.empty_like(self.w)
+        self._A2 = np.empty_like(self.w)
+        if self.ND == 3:
+            self._A3 = np.empty_like(self.w)
+
+        self._outerforce = np.asarray(self.get_outerforce(), dtype=self.f.dtype).copy()
+        self._force_term = np.empty_like(self._outerforce)
+
+    def _ensure_work_arrays(self):
+        '''Create work arrays missing from old saved solver instances.'''
+        required = ('m', 'fstar', 'nextf', '_A1', '_A2')
+        if self.ND == 3:
+            required += ('_A3',)
+
+        expected_shapes = {
+            'm': self.f.shape,
+            'fstar': self.f.shape,
+            'nextf': self.f.shape,
+            '_A1': self.w.shape,
+            '_A2': self.w.shape,
+            '_A3': self.w.shape,
+        }
+        if any(
+            not isinstance(getattr(self, name, None), np.ndarray)
+            or getattr(self, name).shape != expected_shapes[name]
+            for name in required
+        ):
+            self.init_work_arrays()
+            return
+
+        if not isinstance(getattr(self, '_outerforce', None), np.ndarray):
+            self._outerforce = np.asarray(self.get_outerforce(), dtype=self.f.dtype).copy()
+        if (
+            not isinstance(getattr(self, '_force_term', None), np.ndarray)
+            or self._force_term.shape != self._outerforce.shape
+        ):
+            self._force_term = np.empty_like(self._outerforce)
+
+    def refresh_outerforce(self):
+        '''Refresh the cached value used by a static outer force.'''
+        self._outerforce = np.asarray(self.get_outerforce(), dtype=self.f.dtype).copy()
+        self._force_term = np.empty_like(self._outerforce)
+
+    def _get_outerforce_array(self):
+        if self.outerforce_type == 'static':
+            return self._outerforce
+        if self.outerforce_type == 'dynamic':
+            return np.asarray(self.get_outerforce(), dtype=self.f.dtype)
+        raise ValueError('Invalid value for attribute `outerforce_type`.')
+
+    def save_instance(self, file: str | os.PathLike) -> None:
+        '''Save the complete solver instance to *file*.
+
+        The solver class, numerical fields, iteration state, cached values,
+        user-adjusted parameters and experiment diagnostics are preserved.
+        Only load files from trusted sources, since this method uses pickle.
+        '''
+        with open(file, 'wb') as stream:
+            pickle.dump(self, stream, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @classmethod
+    def load_instance(cls, file: str | os.PathLike):
+        '''Rebuild and return a solver instance previously saved to *file*.
+
+        Calling this method on a subclass also verifies that the saved solver
+        is an instance of that subclass.  Pickle files from untrusted sources
+        must not be loaded.
+        '''
+        with open(file, 'rb') as stream:
+            instance = pickle.load(stream)
+
+        if not isinstance(instance, cls):
+            raise TypeError(
+                f'The file contains {type(instance).__module__}.'
+                f'{type(instance).__qualname__}, not an instance of '
+                f'{cls.__module__}.{cls.__qualname__}.'
+            )
+        instance.__dict__.pop('save', None)
+        instance.__dict__.pop('_animation_save', None)
+        return instance
+    
     ################################################################################################
     #################################### Initializing Relaxation ###################################
     ####################################       设置松弛系数       ##################################
@@ -136,8 +262,8 @@ class d2n5_taylorgreen:
     # 自动计算松弛系数
     def init_relax(self, *args):
         self.tau = (self.nu*self.alpha/self.a + 1)*0.5
-        self.relax1 = self.average_relax + 0.5/self.tau
-        self.relax2 = self.average_relax - 0.5/self.tau
+        self.relax1 = 0.5*(self.s_plus + 1/self.tau)
+        self.relax2 = 0.5*(self.s_plus - 1/self.tau)
 
     # NOTE: To achieve the following functions, use a modified cached_property decorator:
     #  1. Allow subclasses to override default values.
@@ -146,7 +272,7 @@ class d2n5_taylorgreen:
     #  1. 允许子类自行设置这些系数的默认值。
     #  2. 修改实例参数后、松弛系数和各种参数的自动更新.
     @property
-    def default_average_relax(self): return 0.25/self.tau + 0.5
+    def default_s_plus(self): return 2 - 1/self.tau
     default_alpha = 0.2
     default_a = 0.2
     
@@ -154,13 +280,18 @@ class d2n5_taylorgreen:
     def alpha(self): return self.default_alpha
     @cached_property
     def a(self): return self.default_a
-    @cached_property
-    def average_relax(self): return self.default_average_relax
+    @property
+    def s_plus(self):
+        return getattr(self, '_s_plus', self.default_s_plus)
+
+    @s_plus.setter
+    def s_plus(self, value):
+        self._s_plus = value
+        self.init_relax()
 
     alpha.run_after_set(init_relax)
     alpha.run_after_set(init_delta)
     a.run_after_set(init_relax)
-    average_relax.run_after_set(init_relax)
 
     ################################################################################################
     ############################### Initial Velocity and Outer Force ###############################
@@ -169,6 +300,8 @@ class d2n5_taylorgreen:
 
     # Outer body force
     # 设置模型外力
+    outerforce_type:Literal['static', 'dynamic'] = 'static'
+
     def get_outerforce(self):
         return np.zeros((self.Nx, self.Ny, 2))
     
@@ -186,6 +319,7 @@ class d2n5_taylorgreen:
     # Precise solution for error analysis and get border velocity.
     # 设置精确解，用于给出边界速度与计算误差
     def exact(self, x:np.ndarray|None = None, y:np.ndarray|None = None):
+        r'''Return the Section 4.3 Taylor--Green velocity.'''
         # NOTE: 
         #   When override this method, you shall notice that the x and y passed
         #   in this method don't need to be `self.X` and `self.Y`
@@ -194,15 +328,31 @@ class d2n5_taylorgreen:
         if x is None: x = self.X
         if y is None: y = self.Y
 
-        k = 2*math.pi
-        bx = -0.5*math.pi
-        U0 = 1
-
-        scale = math.exp(-2*k**2*self.t*self.nu)*U0
-        u = -np.cos(k*x+bx)*np.sin(k*y+bx)*scale
-        v = np.sin(k*x+bx)*np.cos(k*y+bx)*scale
+        scale = self.U0*math.exp(
+            -self.nu*self.t*(self.k1**2+self.k2**2)
+        )
+        u = -np.cos(self.k1*x+self.b1)*np.sin(self.k2*y+self.b2)*scale
+        v = (
+            (self.k1/self.k2)
+            * np.sin(self.k1*x+self.b1)
+            * np.cos(self.k2*y+self.b2)
+            * scale
+        )
 
         return u, v
+
+    def exact_pressure(self, x:np.ndarray|None = None, y:np.ndarray|None = None):
+        '''Return the exact pressure in the gauge stated in Section 4.3.'''
+        if x is None: x = self.X
+        if y is None: y = self.Y
+
+        scale = math.exp(
+            -2*self.nu*self.t*(self.k1**2+self.k2**2)
+        )
+        return -0.25*self.U0**2*(
+            np.cos(2*self.k1*x+2*self.b1)
+            + (self.k1/self.k2)**2*np.cos(2*self.k2*y+2*self.b2)
+        )*scale
     
     # Border Position Setting
     # 设置边界
@@ -232,12 +382,6 @@ class d2n5_taylorgreen:
         areay = np.abs(y-0.5)
         areax[areax < areay] = areay[areax < areay] # 取最大值 # Take the maximum
         return areax - 0.5
-    
-    # Setting if the Dirichlet border position will change over time.
-    # NOTE: The function of changing boundaries over time is not yet fully developed. Please do not attempt to modify this.
-    # 设置边界是否会随时间改变
-    # NOTE: 边界随时间改变的功能暂不完善，请不要尝试修改此项
-    border_type:Literal['static', 'dynamic'] = 'static'
 
     ################################################################################################
     ########################################## Collision ###########################################
@@ -246,20 +390,30 @@ class d2n5_taylorgreen:
 
     # Numerical Pressure
     # 计算数值压强
-    def get_p(self, w:np.ndarray|None = None):
+    def get_numerical_pressure(self, w:np.ndarray|None = None):
         if w is None:
             w = self.w
-        return (w[:,:,0] - 1)/self.h**2
+        return (w[...,0] - 1)/self.h**2
+
+    def get_p(self, w:np.ndarray|None = None):
+        return self.get_numerical_pressure(w)
     
     # Equilibrium Distribution
     # 计算平衡分布
-    def get_m(self, w:np.ndarray|None = None):
+    def get_m(self, w:np.ndarray|None = None, out:np.ndarray|None = None):
         if w is None:
             w = self.w
 
         P = self.get_p(w)
-        A1 = np.zeros(w.shape)
-        A2 = np.zeros(w.shape)
+        if (
+            isinstance(getattr(self, '_A1', None), np.ndarray)
+            and self._A1.shape == w.shape
+        ):
+            A1 = self._A1
+            A2 = self._A2
+        else:
+            A1 = np.empty(w.shape, dtype=float)
+            A2 = np.empty(w.shape, dtype=float)
         A1[:,:,0] = w[:,:,1]
         A1[:,:,1] = (w[:,:,1]**2)/w[:,:,0] + self.h**2*P
         A1[:,:,2] = (w[:,:,1]*w[:,:,2])/w[:,:,0]
@@ -267,7 +421,10 @@ class d2n5_taylorgreen:
         A2[:,:,1] = A1[:,:,2]
         A2[:,:,2] = (w[:,:,2]**2)/w[:,:,0] + self.h**2*P
 
-        m = np.zeros(w.shape[0:2] + (5, 3))
+        if out is None:
+            m = np.empty(w.shape[0:2] + (5, 3), dtype=float)
+        else:
+            m = out
 
         m[:,:,0,:] = self.a*w + 0.5*self.alpha*A1
         m[:,:,1,:] = self.a*w + 0.5*self.alpha*A2
@@ -278,10 +435,36 @@ class d2n5_taylorgreen:
     
     # Result of the Collision Step
     # 计算碰撞步骤的结果
-    def get_fstar(self, m):
-        fne = m - self.f
-        fstar = self.f + self.relax1*fne + self.relax2*fne[:,:,self.opp,:]
-        fstar[:,:,4,1:] += self.alpha*self.h**3*self.get_outerforce()
+    def get_fstar(
+        self,
+        m,
+        out:np.ndarray|None = None,
+        fne_out:np.ndarray|None = None,
+        ):
+        if fne_out is None:
+            fne = np.empty_like(self.f)
+        else:
+            fne = fne_out
+        np.subtract(m, self.f, out=fne)
+
+        if out is None:
+            fstar = np.empty_like(self.f)
+        else:
+            fstar = out
+        np.multiply(fne, self.relax1, out=fstar)
+        np.add(fstar, self.f, out=fstar)
+        for direction, opposite in enumerate(self.opp):
+            fstar[:,:,direction,:] += self.relax2*fne[:,:,opposite,:]
+
+        outerforce = self._get_outerforce_array()
+        if self._force_term.shape != outerforce.shape:
+            self._force_term = np.empty_like(outerforce)
+        np.multiply(
+            outerforce,
+            self.alpha*self.h**3,
+            out=self._force_term,
+        )
+        fstar[:,:,4,1:] += self._force_term
         return fstar
 
     ################################################################################################
@@ -289,87 +472,194 @@ class d2n5_taylorgreen:
     ##################################     迁移步骤：处理边界      #################################
     ################################################################################################
 
+    border_type:Literal['static', 'dynamic'] = 'static'
     _general_border_property_value = None
     _general_border_property_time = None
+    _shared_border_geometry_cache = {}
+
+    # Names of additional scalar/tuple attributes which affect border_func.
+    # Parameterized boundary subclasses can extend this tuple, for example:
+    # border_geometry_parameters = ('center_x', 'center_y', 'radius')
+    border_geometry_parameters = ()
+
+    @staticmethod
+    def _hashable_geometry_value(value):
+        if isinstance(value, np.ndarray):
+            return (value.dtype.str, value.shape, value.tobytes())
+        if isinstance(value, list):
+            return tuple(d2n5_taylorgreen._hashable_geometry_value(v) for v in value)
+        if isinstance(value, tuple):
+            return tuple(d2n5_taylorgreen._hashable_geometry_value(v) for v in value)
+        if isinstance(value, dict):
+            return tuple(sorted(
+                (key, d2n5_taylorgreen._hashable_geometry_value(item))
+                for key, item in value.items()
+            ))
+        try:
+            hash(value)
+        except TypeError:
+            return repr(value)
+        return value
+
+    def border_geometry_cache_key(self):
+        '''Return the key used to share static boundary geometry.
+
+        Subclasses whose boundary depends on instance attributes should list
+        those names in ``border_geometry_parameters`` or override this method.
+        '''
+        axes = (
+            (self.xmin, self.xmax, self.Nx),
+            (self.ymin, self.ymax, self.Ny),
+        )
+        if self.ND == 3:
+            axes += ((self.zmin, self.zmax, self.Nz),)
+
+        boundary_method = self.border_func
+        boundary_definition = getattr(boundary_method, '__func__', boundary_method)
+        parameters = tuple(
+            (name, self._hashable_geometry_value(getattr(self, name)))
+            for name in self.border_geometry_parameters
+        )
+        return (
+            type(self),
+            self._hashable_geometry_value(boundary_definition),
+            self.ND,
+            self.NE,
+            self._hashable_geometry_value(self.h),
+            self._hashable_geometry_value(self.dx),
+            self._hashable_geometry_value(self.xshift),
+            self._hashable_geometry_value(axes),
+            parameters,
+        )
+
+    @classmethod
+    def clear_border_geometry_cache(cls):
+        '''Discard geometry shared by static-boundary solver instances.'''
+        cls._shared_border_geometry_cache.clear()
+
+    def _calculate_general_border_property(self):
+        this = {}
+
+        in_border = self.border_func(self.X, self.Y) < 0
+        this["in_border"] = in_border
+        this["in_border_numtype"] = in_border.astype(float)
+
+        ex = np.asarray(self.Ex[0])
+        ey = np.asarray(self.Ex[1])
+
+        # 保留完整布尔掩码，但每次只创建二维临时数组。
+        near_border = np.empty(
+            self.shape + (self.NE,),
+            dtype=bool,
+        )
+
+        for direction in range(self.NE):
+            near_border[:, :, direction] = (
+                in_border
+                & (
+                    self.border_func(
+                        self.X - ex[direction] * self.dx,
+                        self.Y - ey[direction] * self.dx,
+                    ) > 0
+                )
+            )
+
+        this["near_border"] = near_border
+        this["near_border_numtype"] = near_border.astype(float)
+
+        # 每个数组都是一维的，长度等于实际边界链数量。
+        border_index = np.nonzero(near_border)
+        x_index, y_index, direction_index = border_index
+
+        this["border_index"] = border_index
+        this["border_opposite"] = np.asarray(
+            self.opp,
+            dtype=np.intp,
+        )[direction_index]
+        this["border_E"] = np.column_stack((
+            ex[direction_index],
+            ey[direction_index],
+        ))
+
+        # 为保持原接口兼容，以下结果仍保存为完整形状；
+        # 但只有 border_index 处被赋值。
+        borderX = np.zeros(near_border.shape)
+        borderY = np.zeros(near_border.shape)
+        gamma = np.zeros(near_border.shape)
+        l_value = np.zeros(near_border.shape)
+
+        # 全周期边界时没有边界链，可以立即返回。
+        if direction_index.size == 0:
+            this["borderX"] = borderX
+            this["borderY"] = borderY
+            this["gamma"] = gamma
+            this["l"] = l_value
+            return this
+
+        # 以下数组长度仅为边界链数量。
+        Xin = self.X[x_index, y_index].copy()
+        Yin = self.Y[x_index, y_index].copy()
+        Gin = np.zeros(direction_index.size)
+
+        Xout = Xin - ex[direction_index] * self.dx
+        Yout = Yin - ey[direction_index] * self.dx
+        Gout = np.ones(direction_index.size)
+
+        # 二分查找只处理实际边界链。
+        for _ in range(52):
+            Xmid = (Xout + Xin) * 0.5
+            Ymid = (Yout + Yin) * 0.5
+            Gmid = (Gout + Gin) * 0.5
+
+            Zmid = self.border_func(Xmid, Ymid)
+
+            mid_out_border = Zmid >= 0
+            mid_in_border = Zmid <= 0
+
+            Xout[mid_out_border] = Xmid[mid_out_border]
+            Yout[mid_out_border] = Ymid[mid_out_border]
+            Gout[mid_out_border] = Gmid[mid_out_border]
+
+            Xin[mid_in_border] = Xmid[mid_in_border]
+            Yin[mid_in_border] = Ymid[mid_in_border]
+            Gin[mid_in_border] = Gmid[mid_in_border]
+
+        borderX_link = (Xout + Xin) * 0.5
+        borderY_link = (Yout + Yin) * 0.5
+        gamma_link = (Gout + Gin) * 0.5
+
+        Lmax = 2 * gamma_link
+        Lmin = np.maximum(Lmax - 1, 0)
+        l_link = (Lmin + Lmax) * 0.5
+
+        # 只写入实际边界位置。
+        borderX[border_index] = borderX_link
+        borderY[border_index] = borderY_link
+        gamma[border_index] = gamma_link
+        l_value[border_index] = l_link
+
+        this["borderX"] = borderX
+        this["borderY"] = borderY
+        this["gamma"] = gamma
+        this["l"] = l_value
+
+        return this
 
     @property
     def _general_border_property(self):
-        def border_property():
-            this = dict() # 最终要 return this  # Will return `this` in the end.
-
-            # If the nodes are out of border
-            # 给出是否在区域内
-            this["in_border"] = (self.border_func(self.X, self.Y) < 0)
-            this["in_border_numtype"] = this["in_border"].astype(float)
-            
-            # 需要给出边界的 X,Y 坐标和 gamma
-            # # 先给出所有坐标，然后裁切。
-            Xin = self.X[:,:,None] + np.zeros((len(self.E),))[None,None,:]
-            Yin = self.Y[:,:,None] + np.zeros((len(self.E),))[None,None,:]
-            Gin = np.zeros((self.Nx, self.Ny, len(self.E)), dtype=float)
-            Xout = Xin - np.array(self.Ex[0])[None,None,:]*self.dx
-            Yout = Yin - np.array(self.Ex[1])[None,None,:]*self.dx
-            Gout = np.ones((self.Nx, self.Ny, len(self.E)), dtype=float)
-
-            # # 裁切：我们不需要考虑那些不与边界相邻的情况
-            # # 裁切使用的内容，需要在边界处理时再次使用。所以在这里给出
-            out_border = (self.border_func(Xout, Yout) > 0)                 # 传播自边界外格点
-            this["near_border"] = out_border & this["in_border"][:,:,None]  # 传播自边界外格点 & 位于边界内
-            this["near_border_numtype"] = this["near_border"].astype(float) # => 和边界相邻
-
-            # # 执行裁切
-            Xin[np.logical_not(this["near_border"])] *= 0
-            Xout[np.logical_not(this["near_border"])] *= 0
-            Yin[np.logical_not(this["near_border"])] *= 0
-            Yout[np.logical_not(this["near_border"])] *= 0
-            Gout[np.logical_not(this["near_border"])] *= 0
-
-            # 用二分法求边界坐标，已经裁切的部分可以直接忽略
-            for _ in range(52):
-                Xmid = (Xout + Xin)*0.5
-                Ymid = (Yout + Yin)*0.5
-                Gmid = (Gout + Gin)*0.5
-                Zmid = self.border_func(Xmid, Ymid)
-
-                mid_out_border = (Zmid >= 0)
-                Xout[mid_out_border] = Xmid[mid_out_border]
-                Yout[mid_out_border] = Ymid[mid_out_border]
-                Gout[mid_out_border] = Gmid[mid_out_border]
-
-                mid_in_border = (Zmid <= 0)
-                Xin[mid_in_border] = Xmid[mid_in_border]
-                Yin[mid_in_border] = Ymid[mid_in_border]
-                Gin[mid_in_border] = Gmid[mid_in_border]
-            this["borderX"] = (Xout + Xin)*0.5
-            this["borderY"] = (Yout + Yin)*0.5
-            this["gamma"] = (Gout + Gin)*0.5
-
-            # Stability for `l`:
-            # l 的稳定性条件：
-            #   l >= 0
-            #   l >= 2*gamma - 1
-            #   2*gamma >= l
-
-            # If there is a point which gamma is 0.1
-            # and another point where gamma is 0.9
-            # then any constant l cannot be stable
-
-            Lmax = Gout + Gin # gamma * 2
-            Lmin = Lmax - 1   # gamma * 2 - 1
-            Lmin[Lmin<0] = 0  # max(gamma * 2 - 1, 0)
-            this["l"] = (Lmin + Lmax)*0.5
-
-            return this
         if self.border_type == 'static':
-            if self._general_border_property_value is None:
-                self._general_border_property_value = border_property()
+            if (
+                self._general_border_property_value is None
+                or "border_index" not in self._general_border_property_value
+            ):
+                cache_key = self.border_geometry_cache_key()
+                border_data = self._shared_border_geometry_cache.get(cache_key)
+                if border_data is None:
+                    border_data = self._calculate_general_border_property()
+                    self._shared_border_geometry_cache[cache_key] = border_data
+                self._general_border_property_value = border_data
             return self._general_border_property_value
-        #elif self.border_type == 'dynamic':
-        #    if self._general_border_property_time != self.t:
-        #        self._general_border_property_value = border_property()
-        #        self._general_border_property_time = self.t
-        #    return self._general_border_property_value
-        else: 
+        else:
             raise ValueError('Invalid value for attribute `border_type`.')
             
     '''
@@ -393,6 +683,12 @@ class d2n5_taylorgreen:
     @property
     def near_border_numtype(self): return self._general_border_property["near_border_numtype"]
     @property
+    def border_index(self): return self._general_border_property["border_index"]
+    @property
+    def border_opposite(self): return self._general_border_property["border_opposite"]
+    @property
+    def border_E(self): return self._general_border_property["border_E"]
+    @property
     def borderX(self): return self._general_border_property["borderX"]
     @property
     def borderY(self): return self._general_border_property["borderY"]
@@ -403,61 +699,53 @@ class d2n5_taylorgreen:
 
     # Dirichlet Border
     def border_condition(self, nextf) -> np.ndarray:
-        '''Apply Dirichlet Border or Periodic Border which setted by method `border_func`
-        视情况使用Dirichlet边界或周期边界'''
-        ub, vb = self.exact(self.borderX, self.borderY)
-        ''' 原始算式：
-        nextf[x_index, y_index, i, 0] = (
-            l*self.fstar[x_index, y_index, i, 0]
-            +(1+l-2*gamma)*self.f[x_index, y_index, self.opp[i], 0]
-            +(2*gamma-l)*self.fstar[x_index, y_index, self.opp[i], 0]
-            +self.h*self.alpha*密度*法向速度*(-1)
-            # 特别的：
-            # i = 0 -> 法向速度*(-1) = u
-            # i = 1 -> 法向速度*(-1) = v
-            # i = 2 -> 法向速度*(-1) = -u
-            # i = 3 -> 法向速度*(-1) = -v
-            # 只计算近似不可压流，密度 = 1 + O(h^2)
-            )/(1+l)
-        '''
-        delta_rho_border = np.zeros((self.Nx, self.Ny, 5))
-        delta_rho_border[:,:,0] += ub[:,:,0]
-        delta_rho_border[:,:,1] += vb[:,:,1]
-        delta_rho_border[:,:,2] -= ub[:,:,2]
-        delta_rho_border[:,:,3] -= vb[:,:,3]
-        nextf[:,:,:,0] = (
-            (1 - self.near_border_numtype)*nextf[:,:,:,0]
-            + self.near_border_numtype*(
-                self.l*self.fstar[:,:,:,0]
-                + (1 + self.l - 2*self.gamma)*self.f[:,:,self.opp,0]
-                + (2*self.gamma - self.l)*self.fstar[:,:,self.opp,0]
-                + self.h*self.alpha*delta_rho_border
-            )/(1+self.l))
-        ''' 原始算式：
-        nextf[x_index, y_index, i, 1:] = (
-            l*self.fstar[x_index, y_index, i, 1:]
-            -(1+l-2*gamma)*self.f[x_index, y_index, self.opp[i], 1:]
-            -(2*gamma-l)*self.fstar[x_index, y_index, self.opp[i], 1:]
-            + 2*self.h*self.a*np.array([u,v])[None,:]
-            # u, v 指的是边界处的速度
-            )/(1+l)
-        '''
-        nextf[:,:,:,1] = (
-            (1 - self.near_border_numtype)*nextf[:,:,:,1]
-            + self.near_border_numtype*(
-                self.l*self.fstar[:,:,:,1]
-                - (1 + self.l - 2*self.gamma)*self.f[:,:,self.opp,1]
-                - (2*self.gamma - self.l)*self.fstar[:,:,self.opp,1]
-                + 2*self.h*self.a*ub
-            )/(1+self.l))
-        nextf[:,:,:,2] = (
-            (1 - self.near_border_numtype)*nextf[:,:,:,2]
-            + self.near_border_numtype*(
-                self.l*self.fstar[:,:,:,2]
-                - (1 + self.l - 2*self.gamma)*self.f[:,:,self.opp,2]
-                - (2*self.gamma - self.l)*self.fstar[:,:,self.opp,2]
-                + 2*self.h*self.a*vb
-            )/(1+self.l))
+        '''Apply the boundary condition only at links crossing the boundary.'''
+        border_data = self._general_border_property
+        border_index = border_data["border_index"]
+        direction_index = border_index[-1]
+
+        # No boundary links means that all boundaries are periodic.
+        if direction_index.size == 0:
+            return nextf
+
+        x_index, y_index, _ = border_index
+        opposite_index = (
+            x_index,
+            y_index,
+            border_data["border_opposite"],
+        )
+
+        borderX = border_data["borderX"][border_index]
+        borderY = border_data["borderY"][border_index]
+        gamma = border_data["gamma"][border_index]
+
+        # Access self.l so subclasses can override the boundary parameter.
+        l_full = np.broadcast_to(np.asarray(self.l), border_data["gamma"].shape)
+        l_value = l_full[border_index]
+
+        ub, vb = self.exact(borderX, borderY)
+        ub = np.broadcast_to(np.asarray(ub), gamma.shape)
+        vb = np.broadcast_to(np.asarray(vb), gamma.shape)
+        wall_velocity = np.column_stack((ub, vb))
+
+        delta_rho = np.sum(wall_velocity * border_data["border_E"], axis=1)
+        denominator = 1 + l_value
+        coefficient_old = 1 + l_value - 2 * gamma
+        coefficient_star = 2 * gamma - l_value
+
+        nextf[border_index + (0,)] = (
+            l_value * self.fstar[border_index + (0,)]
+            + coefficient_old * self.f[opposite_index + (0,)]
+            + coefficient_star * self.fstar[opposite_index + (0,)]
+            + self.h * self.alpha * delta_rho
+        ) / denominator
+
+        nextf[border_index + (slice(1, None),)] = (
+            l_value[:, None] * self.fstar[border_index + (slice(1, None),)]
+            - coefficient_old[:, None] * self.f[opposite_index + (slice(1, None),)]
+            - coefficient_star[:, None] * self.fstar[opposite_index + (slice(1, None),)]
+            + 2 * self.h * self.a * wall_velocity
+        ) / denominator[:, None]
         return nextf
 
     ################################################################################################
@@ -471,24 +759,34 @@ class d2n5_taylorgreen:
     # Iterate Once
     # 单次迭代
     def iter(self):
+        self._ensure_work_arrays()
         # Collision Step
         # 碰撞步骤
-        self.m = self.get_m()                # 求平衡分布
-        self.fstar = self.get_fstar(self.m)  # 求碰撞结果（这一步设置了模型外力）
+        self.get_m(out=self.m)                       # 求平衡分布
+        self.get_fstar(                              # 求碰撞结果（这一步设置了模型外力）
+            self.m,
+            out=self.fstar,
+            fne_out=self.nextf,
+        )
         
         # Transport Step
         # 迁移步骤
-        nextf = np.zeros(self.shapef)
+        nextf = self.nextf
         for i in range(self.NE):             # 按照周期边界条件作默认迁移
-            nextf[self._speed_index(i)] = circshift(self.fstar[self._speed_index(i)], shift = self.E[i])
+            speed_index = self._speed_index(i)
+            circshift(
+                self.fstar[speed_index],
+                shift=self.E[i],
+                out=nextf[speed_index],
+            )
         nextf = self.border_condition(nextf) # 单独处理 Dirichlet 边界
 
-        self.f = nextf
+        self.f, self.nextf = nextf, self.f
 
         # Update iter count and physical value
         # 迭代计数
         self.iter_count = self.iter_count + 1
-        self.w = self.f.sum(axis=(self.ND,))
+        np.sum(self.f, axis=self.ND, out=self.w)
         return None
 
     # True if error occured when calculating
@@ -527,138 +825,9 @@ class d2n5_taylorgreen:
             print(f'\rIteration: 100.00% complete, the solver time is now {self.t}.')
         return True
 
-    def until_time(self, time, show_progress:bool = True, catch_ctrl_c: bool = False):
-        if self.overflowed:
-            print(f'Already overflow.')
-            return False
-        with error_behavior(divide = 'raise', over = 'raise', invalid = 'raise', under = 'ignore'):
-            if time < self.t:
-                print(f'The solver time cannot decrease. Current solver time is {self.t}.')
-                return True
-            if time == self.t:
-                print(f'The solver time is already {self.t}, no need for iteration.')
-                return True
-            start = self.t
-            if show_progress:
-                printPercent(self.t-start, time-start, prefix='Iteration: ')
-            while self.t < time:
-                try:
-                    self.iter()
-                    if show_progress:
-                        printPercent(self.t-start, time-start, prefix='\rIteration: ')
-                except FloatingPointError as e:
-                    printPercent(self.t-start, time-start, prefix='\rIteration: ', suffix=' stopped with error: ')
-                    print(e, f'. Now at {self.t}', sep='')
-                    self.overflowed = True
-                    return False
-                except KeyboardInterrupt as e:
-                    if catch_ctrl_c:
-                        print(f'\rIteration... stopped because user aborted. Now at {self.t}')
-                        return True
-                    raise
-        if show_progress:
-            print(f'\rIteration: 100.00% complete, the solver time is now {self.t}.')
-        return True
-
-    def until_stable(self, max_step_delta:float = 1e-14, step:int = 1000, max_time:float = float('inf'), show_progress:bool = True, catch_ctrl_c:bool = False):
-        if self.overflowed:
-            print(f'Already overflow.')
-            return False
-        max_step_delta_sqr = max_step_delta**2
-
-        def iter():
-            for step_count in range(step):
-                try:
-                    self.iter()
-                except FloatingPointError as e:
-                    return e
-            return None
-
-        with error_behavior(divide = 'raise', over = 'raise', invalid = 'raise', under = 'ignore'):
-            in_border = self.in_border_numtype_w
-            previous = self.w
-            if show_progress:
-                dot_count = 1
-                print('Iteration.', end='')
-            iter()
-            #while ((self.f - previous) > self.f*max_step_delta).any():
-            try:
-                while (((self.w - previous)*in_border)**2).sum() > ((self.w*in_border)**2).sum()*max_step_delta_sqr:
-                    previous = self.w
-                    if show_progress:
-                        dot_count += 1
-                        print('\rIteration'+'.'*dot_count+' '*(3-dot_count), end='')
-                        if dot_count == 3: dot_count = 0
-                    if (e:=iter()) is not None:
-                        raise e
-                    if self.t > max_time:
-                        print('\rIteration... stopped because reached time limit:', max_time)
-                        return True
-            except FloatingPointError as e:
-                print('\rIteration... stopped with error: ', e, f'. Now at {self.t}', sep='')
-                self.overflowed = True
-                return False
-            except KeyboardInterrupt as e:
-                if catch_ctrl_c:
-                    print(f'\rIteration... stopped because user aborted. Now at {self.t}')
-                    return True
-                raise
-        if show_progress:
-            print(f'\rIteration complete, the result is stable at time {self.t}.')
-        return True
 
     # Output animation after iteration
     # 输出动画
-    _animation_last_save = -1
-    def animation(self, time = 1, time_step = None, fps = 10, file_name:str|None = None, setting:Callable|None = None, show_progress:bool = True, catch_ctrl_c:bool = False, output_animation:bool = True):
-        if self.overflowed:
-            print(f'Already overflow.')
-            return False
-        with error_behavior(divide = 'raise', over = 'raise', invalid = 'raise', under = 'ignore'):
-            if time < self.t:
-                print(f'The solver time cannot decrease. Current solver time is {self.t}.')
-                return True
-            if time == self.t:
-                print(f'The solver time is already {self.t}, no need for iteration.')
-                return True
-            if time_step is None: time_step = 1/fps
-            if file_name is None: file_name = self.save.prefix + '.mp4'
-            start = self.t
-            next_step = start + time_step
-            step_count = 1
-            if self._animation_last_save < self.t:
-                self.fig(save_fig=True, show_fig=False, setting=setting)
-                self._animation_last_save = self.t
-            if show_progress:
-                printPercent(self.t-start, time-start, prefix='Iteration: ')
-            while self.t < time:
-                try:
-                    self.iter()
-                    if show_progress:
-                        printPercent(self.t-start, time-start, prefix='\rIteration: ')
-                    if self.t >= next_step:
-                        step_count += 1
-                        next_step = start + time_step*step_count
-                        self.fig(save_fig=True, show_fig=False, setting=setting)
-                        self._animation_last_save = self.t
-                except FloatingPointError as e:
-                    printPercent(self.t-start, time-start, prefix='\rIteration: ', suffix=' stopped with error: ')
-                    print(e)
-                    if output_animation:
-                        self.save.animation(fps=fps, file_name=file_name)
-                    self.overflowed = True
-                    return False
-                except KeyboardInterrupt as e:
-                    if catch_ctrl_c:
-                        print(f'\rIteration... stopped because user aborted. Now at {self.t}')
-                        if output_animation:
-                            self.save.animation(fps=fps, file_name=file_name)
-                        return True
-                    raise
-        print(f'\rIteration: 100.00% complete, the solver time is now {self.t}.')
-        if output_animation:
-            self.save.animation(fps=fps, file_name=file_name)
-        return True
 
     ################################################################################################
     ##################################### Get Calculate Result #####################################
@@ -681,12 +850,28 @@ class d2n5_taylorgreen:
     def get_numerical_dencity(self) -> np.ndarray:
         return 1-(1-self.w[:,:,0])*self.in_border_numtype
 
-    def get_error(self) -> float:
-        return self.fig_with_error(False, False)
+    def get_error(self) -> np.ndarray:
+        if self.overflowed:
+            return np.full(3, float('nan'))
+
+        precise_speed = self.get_precise_speed()
+        numerical_speed = self.get_numerical_speed()
+        pointwise_error_sqr = np.zeros(self.shape)
+        for precise, numerical in zip(precise_speed, numerical_speed):
+            pointwise_error_sqr += (numerical-precise)**2
+
+        pointwise_error = np.sqrt(pointwise_error_sqr)
+        cell_measure = self.h**self.ND
+        return np.array((
+            cell_measure*pointwise_error.sum(),
+            math.sqrt(cell_measure*pointwise_error_sqr.sum()),
+            pointwise_error.max(),
+        ))
+
     
     def get_numerical_vorticity(self) -> np.ndarray:
         if self.E != d2n5_taylorgreen.E:
-            raise 
+            raise NotImplementedError
         # 2D vorticity for D2N5
         u, v = self.get_numerical_speed()
         # vorticity = pv/px - pu/py
@@ -719,75 +904,5 @@ class d2n5_taylorgreen:
     ######################################### 绘制计算结果 #########################################
     ################################################################################################
 
-    def fig_with_error(self, save_fig:bool = False, show_fig:bool|None = True, setting:None|Callable = None):
-        if self.overflowed:
-            L2_Relative_error = float('nan')
-        else:
-            u_pre, v_pre = self.get_precise_speed()
-            u_num, v_num = self.get_numerical_speed()
-            
-            u_err = u_pre - u_num
-            v_err = v_pre - v_num
 
-            L2_Relative_error = math.sqrt((u_err**2 + v_err**2).sum()/(u_pre**2 + v_pre**2).sum())
-
-            if L2_Relative_error > 1:
-                L2_Relative_error = float('nan')
-        
-        if show_fig or save_fig:
-            if setting is None:
-                fig, axs = self.fig_default_setting_with_error(u_num, v_num, u_pre, v_pre, u_err, v_err, L2_Relative_error)
-            else:
-                fig, axs = setting(self, u_num, v_num, u_pre, v_pre, u_err, v_err, L2_Relative_error)
-            self.save(fig = fig, save_fig = save_fig)
-            if show_fig is not None:
-                show(fig = fig, show_fig = show_fig)
-        return L2_Relative_error
-
-    def fig_default_setting_with_error(self, u_num, v_num, u_pre, v_pre, u_err, v_err, L2_Relative_error):
-        fig, axs = gridfig(4, 3, title=f"Result at t = {self.t:.5}")
-
-        prt_2d(self.x, self.y, u_num, v_num, fig=fig, ax=axs[0], xlabel=f"Numerical")
-        prt_2d(self.x, self.y, u_num, fig=fig, ax=axs[3])
-        prt_2d(self.x, self.y, v_num, fig=fig, ax=axs[6])
-        prt_2d(self.x, self.y, self.w[:,:,0], fig=fig, ax=axs[9])
-
-        prt_2d(self.x, self.y, u_pre, v_pre, fig=fig, ax=axs[1], xlabel=f"Exact")
-        prt_2d(self.x, self.y, u_pre, fig=fig, ax=axs[4])
-        prt_2d(self.x, self.y, v_pre, fig=fig, ax=axs[7])
-        prt_2d(self.x, self.y, np.ones((self.Nx, self.Ny)), fig=fig, ax=axs[10])
-
-        prt_2d(self.x, self.y, u_err, v_err, fig=fig, ax=axs[2], xlabel=f"L2 Relative Error = {L2_Relative_error}")
-        prt_2d(self.x, self.y, u_err, fig=fig, ax=axs[5])
-        prt_2d(self.x, self.y, v_err, fig=fig, ax=axs[8])
-        prt_2d(self.x, self.y, self.w[:,:,0] - 1, fig=fig, ax=axs[11])
-
-        for ax in axs:
-            prt_mask_2d(ax, (self.xmin, self.xmax), (self.ymin, self.ymax), lambda x, y: self.border_func(x, y))
-        return fig, axs
-
-    def fig(self, save_fig:bool = False, show_fig:bool = True, setting:None|Callable = None):
-        if show_fig or save_fig:
-            if setting is None:
-                fig, axs = self.fig_default_setting()
-            else:
-                fig, axs = setting(self)
-            self.save(fig = fig, save_fig = save_fig)
-            if show_fig is not None:
-                show(fig = fig, show_fig = show_fig)
-        return None
     
-    def fig_default_setting(self):
-        u_num, v_num = self.get_numerical_speed()
-
-        fig, axs = gridfig(2, 2, title=f"Numerical Result at t = {self.t:.5}")
-
-        prt_2d(self.x, self.y, u_num, v_num, fig=fig, ax=axs[0], xlabel=f"streamplot")
-        prt_2d(self.x, self.y, u_num, fig=fig, ax=axs[1], xlabel=f"u")
-        prt_2d(self.x, self.y, v_num, fig=fig, ax=axs[2], xlabel="v")
-        prt_2d(self.x, self.y, self.w[:,:,0], fig=fig, ax=axs[3], xlabel="rho")
-
-        for ax in axs:
-            prt_mask_2d(ax, (self.xmin, self.xmax), (self.ymin, self.ymax), lambda x, y: self.border_func(x, y))
-        return fig, axs
-
